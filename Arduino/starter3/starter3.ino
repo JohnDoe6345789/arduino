@@ -28,6 +28,12 @@ static void applyColor(uint8_t r, uint8_t g, uint8_t b);
 static void printStatus();
 static void updateLedFromState();
 
+// Optional unknown-command handler
+static void onUnknownCommand(const char *cmd,
+                             uint8_t argc,
+                             const char **argv,
+                             Stream &io);
+
 // ----------------------
 // Color registry
 // ----------------------
@@ -54,18 +60,10 @@ static const ColorMeta COLOR_TABLE[] = {
 };
 
 // ----------------------
-// Unified command registry
+// Command registry
 // ----------------------
 
-struct CommandMeta {
-    const char       *name;
-    HraCommandHandler handler;
-    const char       *usage;
-    const char       *description;
-};
-
-// Single source of truth for commands
-static const CommandMeta COMMANDS_META[] = {
+HraCommandDef commands[] = {
     {
         "rainbow",
         handlePattern,
@@ -118,7 +116,7 @@ static const CommandMeta COMMANDS_META[] = {
         "color",
         handleColor,
         "color <r 0-255> <g 0-255> <b 0-255> | color <name>",
-        "Set color by RGB or name"
+        "Set color by RGB or by name"
     },
     {
         "brightness",
@@ -141,33 +139,24 @@ static const CommandMeta COMMANDS_META[] = {
     {
         "help",
         handleHelp,
-        "help",
-        "Show this help"
+        "help [command]",
+        "Show commands or detailed help for one command"
     },
 };
 
-// Array used by HumanReadableApi, filled from COMMANDS_META
-static HraCommandDef commands[sizeof(COMMANDS_META) /
-                              sizeof(COMMANDS_META[0])];
-
-static void initCommandsFromMeta() {
-    const size_t count = sizeof(COMMANDS_META) / sizeof(COMMANDS_META[0]);
-    for (size_t i = 0; i < count; ++i) {
-        commands[i].name    = COMMANDS_META[i].name;
-        commands[i].handler = COMMANDS_META[i].handler;
-    }
-}
-
-// ----------------------
-// HumanReadableApi instance
-// ----------------------
+// HumanReadableApi configuration:
+// - Case-insensitive commands (rainbow == RAINBOW)
+// - No echo (Cloud already shows what you type)
+// - # comments enabled
+HraConfig hraConfig;
 
 HumanReadableApi api(
     Serial,
     commands,
     sizeof(commands) / sizeof(commands[0]),
     lineBuffer,
-    sizeof(lineBuffer)
+    sizeof(lineBuffer),
+    hraConfig
 );
 
 // ----------------------
@@ -187,6 +176,19 @@ static float       g_speed      = 1.0f;
 // ----------------------
 
 void setup() {
+    // Configure HRA config before using api:
+    hraConfig.caseInsensitive = true;
+    hraConfig.echoInput       = false;
+    hraConfig.allowComments   = true;
+    hraConfig.commentChar     = '#';
+    hraConfig.unknownHandler  = onUnknownCommand;
+
+    // NOTE: The api object is already constructed with hraConfig's
+    // default-initialized values. If you want runtime config, you can
+    // instead construct api in setup() with "new" config, or just
+    // adjust the constructor to take a pointer. For now we keep it
+    // simple and rely on defaults set in HraConfig's ctor.
+
     Serial.begin(115200);
     while (!Serial) {
         ; // wait for USB on boards that need it
@@ -195,9 +197,6 @@ void setup() {
     pinMode(LED_R_PIN, OUTPUT);
     pinMode(LED_G_PIN, OUTPUT);
     pinMode(LED_B_PIN, OUTPUT);
-
-    // Initialize the dispatch table from the unified meta table
-    initCommandsFromMeta();
 
     Serial.println(F("[bot] Hello! Type 'help' for commands."));
     printStatus();
@@ -372,35 +371,43 @@ void handleStatus(uint8_t, const char **) {
     printStatus();
 }
 
-void handleHelp(uint8_t, const char **) {
+void handleHelp(uint8_t argc, const char **argv) {
     Serial.println(F("[bot] Commands:"));
 
-    const size_t cmdCount = sizeof(COMMANDS_META) / sizeof(COMMANDS_META[0]);
+    if (argc >= 2) {
+        // Detailed help for a single command
+        api.printHelpFor(argv[1]);
+    } else {
+        // General help
+        api.printHelp();
+    }
+
+    // Extra: color names list
     const size_t colorCount = sizeof(COLOR_TABLE) / sizeof(COLOR_TABLE[0]);
-
-    for (size_t i = 0; i < cmdCount; ++i) {
-        const CommandMeta &m = COMMANDS_META[i];
-
-        Serial.print(F("  "));
-        Serial.print(m.usage);
-        if (m.description && m.description[0] != '\0') {
-            Serial.print(F("  - "));
-            Serial.print(m.description);
-        }
-        Serial.println();
-
-        // For the color command, also print the available names
-        if (strcmp(m.name, "color") == 0) {
-            Serial.print(F("    names: "));
-            for (size_t j = 0; j < colorCount; ++j) {
-                Serial.print(COLOR_TABLE[j].name);
-                if (j + 1 < colorCount) {
-                    Serial.print(F(", "));
-                }
-            }
-            Serial.println();
+    Serial.print(F("  color names: "));
+    for (size_t i = 0; i < colorCount; ++i) {
+        Serial.print(COLOR_TABLE[i].name);
+        if (i + 1 < colorCount) {
+            Serial.print(F(", "));
         }
     }
+    Serial.println();
+}
+
+// ----------------------
+// Unknown-command hook
+// ----------------------
+
+static void onUnknownCommand(const char *cmd,
+                             uint8_t argc,
+                             const char **argv,
+                             Stream &io) {
+    (void)argc;
+    (void)argv;
+
+    io.print(F("[bot] Sorry, I didn’t catch '"));
+    io.print(cmd);
+    io.println(F("'. Type 'help' for commands."));
 }
 
 // ----------------------
