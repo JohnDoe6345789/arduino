@@ -151,6 +151,12 @@ class CMSISInfo:
 
 
 @dataclass(frozen=True)
+class RCGCInfo:
+    r_cgc_h: Path
+    include_dir: Path
+
+
+@dataclass(frozen=True)
 class ComPortInfo:
     device: str
     description: str
@@ -454,6 +460,30 @@ def _dedupe_cmsis(cmsis_list: Iterable[CMSISInfo]) -> List[CMSISInfo]:
     return unique
 
 
+def find_r_cgc_headers(base_dir: Path) -> List[RCGCInfo]:
+    results: List[RCGCInfo] = []
+
+    for header in base_dir.rglob("r_cgc.h"):
+        if not header.is_file():
+            continue
+        results.append(RCGCInfo(r_cgc_h=header, include_dir=header.parent))
+
+    return _dedupe_r_cgc(results)
+
+
+def _dedupe_r_cgc(r_cgc_list: Iterable[RCGCInfo]) -> List[RCGCInfo]:
+    seen: Set[Path] = set()
+    unique: List[RCGCInfo] = []
+
+    for r_cgc in sorted(r_cgc_list, key=lambda r: str(r.include_dir)):
+        if r_cgc.include_dir in seen:
+            continue
+        seen.add(r_cgc.include_dir)
+        unique.append(r_cgc)
+
+    return unique
+
+
 def find_matching_bsp(
     bsp_list: Sequence[BSPInfo],
     ports: Sequence[ComPortInfo],
@@ -642,6 +672,44 @@ def find_matching_cmsis(
                 return cmsis, remaining
 
     return None, list(cmsis_list)
+
+
+def find_matching_r_cgc(
+    r_cgc_list: Sequence[RCGCInfo],
+    ports: Sequence[ComPortInfo],
+) -> Tuple[Optional[RCGCInfo], List[RCGCInfo]]:
+    if not ports or not r_cgc_list:
+        return None, list(r_cgc_list)
+
+    detected_port = None
+    for p in ports:
+        if p.vid in (0x2341, 0x2A03):
+            detected_port = p
+            break
+    
+    if detected_port is None:
+        detected_port = ports[0] if ports else None
+
+    if detected_port is None:
+        return None, list(r_cgc_list)
+
+    board_short = short_board_name(detected_port.vid, detected_port.pid)
+    variant_names = _BOARD_TO_VARIANT.get(board_short)
+
+    if variant_names is None:
+        return None, list(r_cgc_list)
+
+    if not isinstance(variant_names, list):
+        variant_names = [variant_names]
+
+    for variant_name in variant_names:
+        for r_cgc in r_cgc_list:
+            r_cgc_path_lower = str(r_cgc.r_cgc_h).lower()
+            if variant_name.lower() in r_cgc_path_lower:
+                remaining = [r for r in r_cgc_list if r != r_cgc]
+                return r_cgc, remaining
+
+    return None, list(r_cgc_list)
 
 
 # =========================
@@ -1135,6 +1203,41 @@ def print_cmsis(cmsis_list: Sequence[CMSISInfo], ports: Sequence[ComPortInfo]) -
             print()
 
 
+def print_r_cgc(r_cgc_list: Sequence[RCGCInfo], ports: Sequence[ComPortInfo]) -> None:
+    print_section("R_CGC Headers")
+    print(f"Discovered R_CGC headers: {len(r_cgc_list)}\n")
+
+    if not r_cgc_list:
+        print("No R_CGC headers (r_cgc.h) found.\n")
+        return
+
+    matched_r_cgc, remaining = find_matching_r_cgc(r_cgc_list, ports)
+
+    if matched_r_cgc is not None:
+        print("[R_CGC #1] [MATCHED TO DETECTED BOARD]")
+        print("  r_cgc.h full path:")
+        print(indent(str(matched_r_cgc.r_cgc_h), "    "))
+        print("  Include directory (-I):")
+        print(indent(str(matched_r_cgc.include_dir), "    "))
+        print()
+
+        for idx, r_cgc in enumerate(remaining, start=2):
+            print(f"[R_CGC #{idx}]")
+            print("  r_cgc.h full path:")
+            print(indent(str(r_cgc.r_cgc_h), "    "))
+            print("  Include directory (-I):")
+            print(indent(str(r_cgc.include_dir), "    "))
+            print()
+    else:
+        for idx, r_cgc in enumerate(r_cgc_list, start=1):
+            print(f"[R_CGC #{idx}]")
+            print("  r_cgc.h full path:")
+            print(indent(str(r_cgc.r_cgc_h), "    "))
+            print("  Include directory (-I):")
+            print(indent(str(r_cgc.include_dir), "    "))
+            print()
+
+
 def print_com_ports(ports: Sequence[ComPortInfo]) -> None:
     print_section("Serial / COM ports")
 
@@ -1181,6 +1284,7 @@ def print_suggested_flags(
     bsp_cfg_headers: Sequence[BSPCfgInfo] = None,
     hal_data_headers: Sequence[HALDataInfo] = None,
     cmsis_headers: Sequence[CMSISInfo] = None,
+    r_cgc_headers: Sequence[RCGCInfo] = None,
 ) -> None:
     if fsp_headers is None:
         fsp_headers = []
@@ -1190,6 +1294,8 @@ def print_suggested_flags(
         hal_data_headers = []
     if cmsis_headers is None:
         cmsis_headers = []
+    if r_cgc_headers is None:
+        r_cgc_headers = []
 
     print_section("Suggested -I include flags")
 
@@ -1268,6 +1374,15 @@ def print_suggested_flags(
 
     print()
 
+    print("R_CGC include paths:")
+    if r_cgc_headers:
+        for r in r_cgc_headers:
+            print(f'  -I"{r.include_dir}"')
+    else:
+        print("  (none found)")
+
+    print()
+
 
 # =========================
 # Main
@@ -1293,6 +1408,7 @@ def main(argv: Sequence[str]) -> None:
     bsp_cfg_headers = find_bsp_cfg_headers(base_dir)
     hal_data_headers = find_hal_data_headers(base_dir)
     cmsis_headers = find_cmsis_headers(base_dir)
+    r_cgc_headers = find_r_cgc_headers(base_dir)
 
     extra_core_includes: Set[Path] = set()
     extra_tc_includes: Set[Path] = set()
@@ -1304,6 +1420,7 @@ def main(argv: Sequence[str]) -> None:
     print_bsp_cfg(bsp_cfg_headers, ports)
     print_hal_data(hal_data_headers, ports)
     print_cmsis(cmsis_headers, ports)
+    print_r_cgc(r_cgc_headers, ports)
     print_com_ports(ports)
     
     matched_bsp, _ = find_matching_bsp(bsp_headers, ports)
@@ -1316,7 +1433,9 @@ def main(argv: Sequence[str]) -> None:
     suggested_hal_data = [matched_hal_data] if matched_hal_data else hal_data_headers
     matched_cmsis, _ = find_matching_cmsis(cmsis_headers, ports)
     suggested_cmsis = [matched_cmsis] if matched_cmsis else cmsis_headers
-    print_suggested_flags(cores, toolchains, suggested_bsp, extra_core_includes, extra_tc_includes, suggested_fsp, suggested_bsp_cfg, suggested_hal_data, suggested_cmsis)
+    matched_r_cgc, _ = find_matching_r_cgc(r_cgc_headers, ports)
+    suggested_r_cgc = [matched_r_cgc] if matched_r_cgc else r_cgc_headers
+    print_suggested_flags(cores, toolchains, suggested_bsp, extra_core_includes, extra_tc_includes, suggested_fsp, suggested_bsp_cfg, suggested_hal_data, suggested_cmsis, suggested_r_cgc)
 
 
 if __name__ == "__main__":
