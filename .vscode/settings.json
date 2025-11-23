@@ -7,6 +7,9 @@
         "C:\\Users\\richa\\Documents\\ArduinoData\\packages\\arduino\\tools\\arm-none-eabi-gcc\\7-2017q4\\arm-none-eabi\\include",
         "C:\\Users\\richa\\Documents\\ArduinoData\\packages\\arduino\\tools\\arm-none-eabi-gcc\\7-2017q4\\lib\\gcc\\arm-none-eabi\\7.2.1\\include",
         "C:\\Users\\richa\\Documents\\ArduinoData\\packages\\arduino\\hardware\\renesas_uno\\1.5.1\\variants\\NANOR4\\includes\\ra\\fsp\\inc\\api",
-        "C:\\Users\\richa\\Documents\\ArduinoData\\packages\\arduino\\hardware\\renesas_uno\\1.5.1\\variants\\NANOR4\\includes\\ra\\fsp\\inc"
+        "C:\\Users\\richa\\Documents\\ArduinoData\\packages\\arduino\\hardware\\renesas_uno\\1.5.1\\variants\\NANOR4\\includes\\ra\\fsp\\inc",
+        "C:\\Users\\richa\\Documents\\ArduinoData\\packages\\arduino\\hardware\\renesas_uno\\1.5.1\\variants\\NANOR4\\includes\\ra\\arm\\CMSIS_5\\CMSIS\\Core\\Include",
+        "C:\\Users\\richa\\Documents\\ArduinoData\\packages\\arduino\\hardware\\renesas_uno\\1.5.1\\variants\\NANOR4\\includes\\ra_gen",
+        "C:\\Users\\richa\\Documents\\ArduinoData\\packages\\arduino\\hardware\\renesas_uno\\1.5.1\\variants\\NANOR4\\includes\\ra_cfg\\fsp_cfg\\bsp"
     ]
 }
