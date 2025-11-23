@@ -1,0 +1,142 @@
+[pyserial] Already installed.
+ ###  ####  ####  #   # ##### #   #  ###        ####     #        #####  ###  #   # ##### #     #   #
+#   # #   # #   # #   #   #   ##  # #   #       #   #   ##        #     #   # ## ##   #   #     #   #
+#   # #   # #   # #   #   #   # # # #   #       #   #  # #        #     #   # # # #   #   #      # # 
+##### ####  #   # #   #   #   # # # #   #       ####  #  #        ####  ##### # # #   #   #       #  
+#   # # #   #   # #   #   #   #  ## #   #       # #   #####       #     #   # #   #   #   #       #  
+#   # #  #  #   # #   #   #   #   # #   #       #  #     #        #     #   # #   #   #   #       #  
+#   # #   # ####   ###  ##### #   #  ###        #   #    #        #     #   # #   # ##### #####   #  
+-----------------------------------------------------------------------------------------------------
+
+========================================================================
+Arduino Neofetch
+========================================================================
+User        : richa
+OS          : Windows 11
+Python      : 3.14.0
+Arch        : AMD64
+ArduinoDir  : C:\Users\richa\Documents\ArduinoData
+PythonExe   : C:\Python314\python.exe
+
+========================================================================
+Arduino cores (Arduino.h and friends)
+========================================================================
+Discovered cores: 1
+
+[Core #1]
+  Arduino.h full path:
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino\Arduino.h
+  Include directory (-I):
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino
+  Core header friends (present / elsewhere / missing):
+    [ALT]  HardwareSerial.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino\api\HardwareSerial.h
+    [ALT]  Print.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino\api\Print.h
+    [ALT]  Stream.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino\api\Stream.h
+    [ALT]  WString.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino\api\deprecated\WString.h
+
+========================================================================
+Toolchain C library (stdlib.h and friends)
+========================================================================
+Discovered toolchains: 1
+
+[Toolchain #1]
+  stdlib.h full path:
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include\stdlib.h
+  Include directory (-I):
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include
+  C library header friends (present / elsewhere / missing):
+    [OK]  ctype.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include\ctype.h
+    [OK]  errno.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include\errno.h
+    [ALT]  float.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\lib\gcc\arm-none-eabi\7.2.1\include\float.h
+    [OK]  limits.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include\limits.h
+    [OK]  math.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include\math.h
+    [OK]  signal.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include\signal.h
+    [ALT]  stdbool.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\lib\gcc\arm-none-eabi\7.2.1\include\stdbool.h
+    [ALT]  stddef.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\lib\gcc\arm-none-eabi\7.2.1\include\stddef.h
+    [OK]  stdint.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include\stdint.h
+    [OK]  stdio.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include\stdio.h
+    [OK]  stdlib.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include\stdlib.h
+    [OK]  string.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include\string.h
+    [OK]  time.h -> C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include\time.h
+
+Best-guess default toolchain include dir (-I):
+  C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include
+
+========================================================================
+BSP API (bsp_api.h)
+========================================================================
+Discovered BSP headers: 3
+
+[BSP #1] [MATCHED TO DETECTED BOARD]
+  bsp_api.h full path:
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\NANOR4\includes\ra\fsp\inc\api\bsp_api.h
+  Include directory (-I):
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\NANOR4\includes\ra\fsp\inc\api
+
+[BSP #2]
+  bsp_api.h full path:
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\MINIMA\includes\ra\fsp\inc\api\bsp_api.h
+  Include directory (-I):
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\MINIMA\includes\ra\fsp\inc\api
+
+[BSP #3]
+  bsp_api.h full path:
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\UNOWIFIR4\includes\ra\fsp\inc\api\bsp_api.h
+  Include directory (-I):
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\UNOWIFIR4\includes\ra\fsp\inc\api
+
+========================================================================
+FSP Common API (fsp_common_api.h)
+========================================================================
+Discovered FSP common headers: 3
+
+[FSP #1]
+  fsp_common_api.h full path:
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\MINIMA\includes\ra\fsp\inc\fsp_common_api.h
+  Include directory (-I):
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\MINIMA\includes\ra\fsp\inc
+
+[FSP #2]
+  fsp_common_api.h full path:
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\NANOR4\includes\ra\fsp\inc\fsp_common_api.h
+  Include directory (-I):
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\NANOR4\includes\ra\fsp\inc
+
+[FSP #3]
+  fsp_common_api.h full path:
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\UNOWIFIR4\includes\ra\fsp\inc\fsp_common_api.h
+  Include directory (-I):
+    C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\UNOWIFIR4\includes\ra\fsp\inc
+
+========================================================================
+Serial / COM ports
+========================================================================
+Detected COM ports: 1
+
+[Port #1] COM3
+  Description : USB Serial Device (COM3)
+  HWID        : USB VID:PID=2341:0074 SER=300F28283932343210A633334B573034
+  VID/PID     : 0x2341 / 0x0074
+  USB strings :
+    Manufacturer : Microsoft
+  Board guess : Arduino R4 Family (UNO R4 WiFi/Minima or NANO R4)
+
+========================================================================
+Suggested -I include flags
+========================================================================
+Arduino core include paths:
+  -I"C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino"
+
+Extra Arduino core friend include paths:
+  -I"C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino\api"
+  -I"C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino\api\deprecated"
+
+Toolchain C library include paths:
+  -I"C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include"
+
+Extra toolchain friend include paths:
+  -I"C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\lib\gcc\arm-none-eabi\7.2.1\include"
+
+BSP API include paths:
+  -I"C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\variants\NANOR4\includes\ra\fsp\inc\api"
+

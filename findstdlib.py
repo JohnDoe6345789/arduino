@@ -126,6 +126,12 @@ class BSPInfo:
 
 
 @dataclass(frozen=True)
+class FSPCommonInfo:
+    fsp_common_api_h: Path
+    include_dir: Path
+
+
+@dataclass(frozen=True)
 class ComPortInfo:
     device: str
     description: str
@@ -313,6 +319,30 @@ def _dedupe_bsp(bsp_list: Iterable[BSPInfo]) -> List[BSPInfo]:
     return unique
 
 
+def find_fsp_common_api_headers(base_dir: Path) -> List[FSPCommonInfo]:
+    results: List[FSPCommonInfo] = []
+
+    for header in base_dir.rglob("fsp_common_api.h"):
+        if not header.is_file():
+            continue
+        results.append(FSPCommonInfo(fsp_common_api_h=header, include_dir=header.parent))
+
+    return _dedupe_fsp_common(results)
+
+
+def _dedupe_fsp_common(fsp_list: Iterable[FSPCommonInfo]) -> List[FSPCommonInfo]:
+    seen: Set[Path] = set()
+    unique: List[FSPCommonInfo] = []
+
+    for fsp in sorted(fsp_list, key=lambda f: str(f.include_dir)):
+        if fsp.include_dir in seen:
+            continue
+        seen.add(fsp.include_dir)
+        unique.append(fsp)
+
+    return unique
+
+
 def find_matching_bsp(
     bsp_list: Sequence[BSPInfo],
     ports: Sequence[ComPortInfo],
@@ -349,6 +379,44 @@ def find_matching_bsp(
                 return bsp, remaining
 
     return None, list(bsp_list)
+
+
+def find_matching_fsp_common(
+    fsp_list: Sequence[FSPCommonInfo],
+    ports: Sequence[ComPortInfo],
+) -> Tuple[Optional[FSPCommonInfo], List[FSPCommonInfo]]:
+    if not ports or not fsp_list:
+        return None, list(fsp_list)
+
+    detected_port = None
+    for p in ports:
+        if p.vid in (0x2341, 0x2A03):
+            detected_port = p
+            break
+    
+    if detected_port is None:
+        detected_port = ports[0] if ports else None
+
+    if detected_port is None:
+        return None, list(fsp_list)
+
+    board_short = short_board_name(detected_port.vid, detected_port.pid)
+    variant_names = _BOARD_TO_VARIANT.get(board_short)
+
+    if variant_names is None:
+        return None, list(fsp_list)
+
+    if not isinstance(variant_names, list):
+        variant_names = [variant_names]
+
+    for variant_name in variant_names:
+        for fsp in fsp_list:
+            fsp_path_lower = str(fsp.fsp_common_api_h).lower()
+            if variant_name.lower() in fsp_path_lower:
+                remaining = [f for f in fsp_list if f != fsp]
+                return fsp, remaining
+
+    return None, list(fsp_list)
 
 
 # =========================
@@ -699,6 +767,41 @@ def print_bsp(bsp_list: Sequence[BSPInfo], ports: Sequence[ComPortInfo]) -> None
             print()
 
 
+def print_fsp_common(fsp_list: Sequence[FSPCommonInfo], ports: Sequence[ComPortInfo]) -> None:
+    print_section("FSP Common API (fsp_common_api.h)")
+    print(f"Discovered FSP common headers: {len(fsp_list)}\n")
+
+    if not fsp_list:
+        print("No FSP common API headers (fsp_common_api.h) found.\n")
+        return
+
+    matched_fsp, remaining = find_matching_fsp_common(fsp_list, ports)
+
+    if matched_fsp is not None:
+        print("[FSP #1] [MATCHED TO DETECTED BOARD]")
+        print("  fsp_common_api.h full path:")
+        print(indent(str(matched_fsp.fsp_common_api_h), "    "))
+        print("  Include directory (-I):")
+        print(indent(str(matched_fsp.include_dir), "    "))
+        print()
+
+        for idx, fsp in enumerate(remaining, start=2):
+            print(f"[FSP #{idx}]")
+            print("  fsp_common_api.h full path:")
+            print(indent(str(fsp.fsp_common_api_h), "    "))
+            print("  Include directory (-I):")
+            print(indent(str(fsp.include_dir), "    "))
+            print()
+    else:
+        for idx, fsp in enumerate(fsp_list, start=1):
+            print(f"[FSP #{idx}]")
+            print("  fsp_common_api.h full path:")
+            print(indent(str(fsp.fsp_common_api_h), "    "))
+            print("  Include directory (-I):")
+            print(indent(str(fsp.include_dir), "    "))
+            print()
+
+
 def print_com_ports(ports: Sequence[ComPortInfo]) -> None:
     print_section("Serial / COM ports")
 
@@ -741,7 +844,11 @@ def print_suggested_flags(
     bsp_headers: Sequence[BSPInfo],
     extra_core_includes: Set[Path],
     extra_tc_includes: Set[Path],
+    fsp_headers: Sequence[FSPCommonInfo] = None,
 ) -> None:
+    if fsp_headers is None:
+        fsp_headers = []
+
     print_section("Suggested -I include flags")
 
     print("Arduino core include paths:")
@@ -781,6 +888,15 @@ def print_suggested_flags(
 
     print()
 
+    print("FSP Common API include paths:")
+    if fsp_headers:
+        for f in fsp_headers:
+            print(f'  -I"{f.include_dir}"')
+    else:
+        print("  (none found)")
+
+    print()
+
 
 # =========================
 # Main
@@ -802,6 +918,7 @@ def main(argv: Sequence[str]) -> None:
     cores = find_arduino_headers(base_dir)
     toolchains = find_stdlib_headers(base_dir)
     bsp_headers = find_bsp_api_headers(base_dir)
+    fsp_common_headers = find_fsp_common_api_headers(base_dir)
 
     extra_core_includes: Set[Path] = set()
     extra_tc_includes: Set[Path] = set()
@@ -809,11 +926,14 @@ def main(argv: Sequence[str]) -> None:
     print_cores(cores, extra_core_includes)
     print_toolchains(toolchains, extra_tc_includes)
     print_bsp(bsp_headers, ports)
+    print_fsp_common(fsp_common_headers, ports)
     print_com_ports(ports)
     
     matched_bsp, _ = find_matching_bsp(bsp_headers, ports)
     suggested_bsp = [matched_bsp] if matched_bsp else bsp_headers
-    print_suggested_flags(cores, toolchains, suggested_bsp, extra_core_includes, extra_tc_includes)
+    matched_fsp, _ = find_matching_fsp_common(fsp_common_headers, ports)
+    suggested_fsp = [matched_fsp] if matched_fsp else fsp_common_headers
+    print_suggested_flags(cores, toolchains, suggested_bsp, extra_core_includes, extra_tc_includes, suggested_fsp)
 
 
 if __name__ == "__main__":
