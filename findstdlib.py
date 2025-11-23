@@ -117,6 +117,7 @@ class CoreInfo:
 class ToolchainInfo:
     stdlib_h: Path
     include_dir: Path
+    compiler_path: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -279,6 +280,22 @@ _TOOLCHAIN_TOKENS: Sequence[str] = (
 )
 
 
+def _find_compiler(include_dir: Path) -> Optional[Path]:
+    compiler_names = ["arm-none-eabi-gcc", "arm-none-eabi-g++", "gcc", "g++", "cc", "c++"]
+    
+    for parent in [include_dir.parent] + list(include_dir.parents[:3]):
+        bin_dir = parent / "bin"
+        if not bin_dir.is_dir():
+            continue
+        
+        for name in compiler_names:
+            compiler = bin_dir / f"{name}.exe" if platform.system() == "Windows" else bin_dir / name
+            if compiler.is_file():
+                return compiler
+    
+    return None
+
+
 def find_stdlib_headers(base_dir: Path) -> List[ToolchainInfo]:
     results: List[ToolchainInfo] = []
 
@@ -289,7 +306,8 @@ def find_stdlib_headers(base_dir: Path) -> List[ToolchainInfo]:
             continue
         if not path_contains_any(header, _TOOLCHAIN_TOKENS):
             continue
-        results.append(ToolchainInfo(stdlib_h=header, include_dir=header.parent))
+        compiler = _find_compiler(header.parent)
+        results.append(ToolchainInfo(stdlib_h=header, include_dir=header.parent, compiler_path=compiler))
 
     return _dedupe_toolchains(results)
 
@@ -912,6 +930,9 @@ def print_toolchains(
         print(indent(str(tc.stdlib_h), "    "))
         print("  Include directory (-I):")
         print(indent(str(tc.include_dir), "    "))
+        if tc.compiler_path:
+            print("  Compiler path:")
+            print(indent(str(tc.compiler_path), "    "))
 
         parents = list(tc.include_dir.parents)
         if len(parents) > 1:
@@ -1190,6 +1211,8 @@ def print_suggested_flags(
     if toolchains:
         for t in toolchains:
             print(f'  -I"{t.include_dir}"')
+            if t.compiler_path:
+                print(f'  Compiler: "{t.compiler_path}"')
     else:
         print("  (none found)")
 
