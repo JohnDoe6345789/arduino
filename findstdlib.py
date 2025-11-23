@@ -190,7 +190,6 @@ if TYPE_CHECKING:
 # Generic helpers for dedupe / matching
 # =========================
 
-
 class HasIncludeDir(Protocol):
     include_dir: Path
 
@@ -270,6 +269,51 @@ def _match_header_by_variants(
                 return item, remaining
 
     return None, list(items)
+
+
+def _print_matched_headers(
+    section_title: str,
+    discovered_label: str,
+    none_found_msg: str,
+    item_label: str,
+    header_desc: str,
+    items: Sequence[THeader],
+    ports: Sequence[ComPortInfo],
+    matcher: Callable[
+        [Sequence[THeader], Sequence[ComPortInfo]],
+        Tuple[Optional[THeader], List[THeader]],
+    ],
+    header_path: Callable[[THeader], Path],
+    include_dir: Callable[[THeader], Path],
+) -> None:
+    """
+    Generic printer for all the 'print_*' header groups that support board matching.
+    """
+    print_section(section_title)
+    print(f"{discovered_label}: {len(items)}\n")
+
+    if not items:
+        print(f"{none_found_msg}\n")
+        return
+
+    matched, remaining = matcher(items, ports)
+
+    def _print_item(idx: int, item: THeader, matched_flag: bool) -> None:
+        match_suffix = " [MATCHED TO DETECTED BOARD]" if matched_flag else ""
+        print(f"[{item_label} #{idx}]{match_suffix}")
+        print(f"  {header_desc} full path:")
+        print(indent(str(header_path(item)), "    "))
+        print("  Include directory (-I):")
+        print(indent(str(include_dir(item)), "    "))
+        print()
+
+    if matched is not None:
+        _print_item(1, matched, True)
+        for idx, item in enumerate(remaining, start=2):
+            _print_item(idx, item, False)
+    else:
+        for idx, item in enumerate(items, start=1):
+            _print_item(idx, item, False)
 
 
 # =========================
@@ -1006,311 +1050,144 @@ def print_toolchains(
 
 
 def print_bsp(bsp_list: Sequence[BSPInfo], ports: Sequence[ComPortInfo]) -> None:
-    print_section("BSP API (bsp_api.h)")
-    print(f"Discovered BSP headers: {len(bsp_list)}\n")
-
-    if not bsp_list:
-        print("No BSP API headers (bsp_api.h) found.\n")
-        return
-
-    matched_bsp, remaining = find_matching_bsp(bsp_list, ports)
-
-    if matched_bsp is not None:
-        print("[BSP #1] [MATCHED TO DETECTED BOARD]")
-        print("  bsp_api.h full path:")
-        print(indent(str(matched_bsp.bsp_api_h), "    "))
-        print("  Include directory (-I):")
-        print(indent(str(matched_bsp.include_dir), "    "))
-        print()
-
-        for idx, bsp in enumerate(remaining, start=2):
-            print(f"[BSP #{idx}]")
-            print("  bsp_api.h full path:")
-            print(indent(str(bsp.bsp_api_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(bsp.include_dir), "    "))
-            print()
-    else:
-        for idx, bsp in enumerate(bsp_list, start=1):
-            print(f"[BSP #{idx}]")
-            print("  bsp_api.h full path:")
-            print(indent(str(bsp.bsp_api_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(bsp.include_dir), "    "))
-            print()
+    _print_matched_headers(
+        section_title="BSP API (bsp_api.h)",
+        discovered_label="Discovered BSP headers",
+        none_found_msg="No BSP API headers (bsp_api.h) found.",
+        item_label="BSP",
+        header_desc="bsp_api.h",
+        items=bsp_list,
+        ports=ports,
+        matcher=find_matching_bsp,
+        header_path=lambda b: b.bsp_api_h,
+        include_dir=lambda b: b.include_dir,
+    )
 
 
 def print_fsp_common(
     fsp_list: Sequence[FSPCommonInfo],
     ports: Sequence[ComPortInfo],
 ) -> None:
-    print_section("FSP Common API (fsp_common_api.h)")
-    print(f"Discovered FSP common headers: {len(fsp_list)}\n")
-
-    if not fsp_list:
-        print("No FSP common API headers (fsp_common_api.h) found.\n")
-        return
-
-    matched_fsp, remaining = find_matching_fsp_common(fsp_list, ports)
-
-    if matched_fsp is not None:
-        print("[FSP #1] [MATCHED TO DETECTED BOARD]")
-        print("  fsp_common_api.h full path:")
-        print(indent(str(matched_fsp.fsp_common_api_h), "    "))
-        print("  Include directory (-I):")
-        print(indent(str(matched_fsp.include_dir), "    "))
-
-        print()
-
-        for idx, fsp in enumerate(remaining, start=2):
-            print(f"[FSP #{idx}]")
-            print("  fsp_common_api.h full path:")
-            print(indent(str(fsp.fsp_common_api_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(fsp.include_dir), "    "))
-            print()
-    else:
-        for idx, fsp in enumerate(fsp_list, start=1):
-            print(f"[FSP #{idx}]")
-            print("  fsp_common_api.h full path:")
-            print(indent(str(fsp.fsp_common_api_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(fsp.include_dir), "    "))
-            print()
+    _print_matched_headers(
+        section_title="FSP Common API (fsp_common_api.h)",
+        discovered_label="Discovered FSP common headers",
+        none_found_msg="No FSP common API headers (fsp_common_api.h) found.",
+        item_label="FSP",
+        header_desc="fsp_common_api.h",
+        items=fsp_list,
+        ports=ports,
+        matcher=find_matching_fsp_common,
+        header_path=lambda f: f.fsp_common_api_h,
+        include_dir=lambda f: f.include_dir,
+    )
 
 
 def print_bsp_cfg(
     bsp_cfg_list: Sequence[BSPCfgInfo],
     ports: Sequence[ComPortInfo],
 ) -> None:
-    print_section("BSP Configuration (bsp_cfg.h)")
-    print(f"Discovered BSP config headers: {len(bsp_cfg_list)}\n")
-
-    if not bsp_cfg_list:
-        print("No BSP config headers (bsp_cfg.h) found.\n")
-        return
-
-    matched_bsp_cfg, remaining = find_matching_bsp_cfg(bsp_cfg_list, ports)
-
-    if matched_bsp_cfg is not None:
-        print("[BSP Config #1] [MATCHED TO DETECTED BOARD]")
-        print("  bsp_cfg.h full path:")
-        print(indent(str(matched_bsp_cfg.bsp_cfg_h), "    "))
-        print("  Include directory (-I):")
-        print(indent(str(matched_bsp_cfg.include_dir), "    "))
-        print()
-
-        for idx, bsp_cfg in enumerate(remaining, start=2):
-            print(f"[BSP Config #{idx}]")
-            print("  bsp_cfg.h full path:")
-            print(indent(str(bsp_cfg.bsp_cfg_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(bsp_cfg.include_dir), "    "))
-            print()
-    else:
-        for idx, bsp_cfg in enumerate(bsp_cfg_list, start=1):
-            print(f"[BSP Config #{idx}]")
-            print("  bsp_cfg.h full path:")
-            print(indent(str(bsp_cfg.bsp_cfg_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(bsp_cfg.include_dir), "    "))
-            print()
+    _print_matched_headers(
+        section_title="BSP Configuration (bsp_cfg.h)",
+        discovered_label="Discovered BSP config headers",
+        none_found_msg="No BSP config headers (bsp_cfg.h) found.",
+        item_label="BSP Config",
+        header_desc="bsp_cfg.h",
+        items=bsp_cfg_list,
+        ports=ports,
+        matcher=find_matching_bsp_cfg,
+        header_path=lambda b: b.bsp_cfg_h,
+        include_dir=lambda b: b.include_dir,
+    )
 
 
 def print_hal_data(
     hal_data_list: Sequence[HALDataInfo],
     ports: Sequence[ComPortInfo],
 ) -> None:
-    print_section("HAL Data (hal_data.h)")
-    print(f"Discovered HAL data headers: {len(hal_data_list)}\n")
-
-    if not hal_data_list:
-        print("No HAL data headers (hal_data.h) found.\n")
-        return
-
-    matched_hal_data, remaining = find_matching_hal_data(hal_data_list, ports)
-
-    if matched_hal_data is not None:
-        print("[HAL Data #1] [MATCHED TO DETECTED BOARD]")
-        print("  hal_data.h full path:")
-        print(indent(str(matched_hal_data.hal_data_h), "    "))
-        print("  Include directory (-I):")
-        print(indent(str(matched_hal_data.include_dir), "    "))
-        print()
-
-        for idx, hal_data in enumerate(remaining, start=2):
-            print(f"[HAL Data #{idx}]")
-            print("  hal_data.h full path:")
-            print(indent(str(hal_data.hal_data_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(hal_data.include_dir), "    "))
-            print()
-    else:
-        for idx, hal_data in enumerate(hal_data_list, start=1):
-            print(f"[HAL Data #{idx}]")
-            print("  hal_data.h full path:")
-            print(indent(str(hal_data.hal_data_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(hal_data.include_dir), "    "))
-            print()
+    _print_matched_headers(
+        section_title="HAL Data (hal_data.h)",
+        discovered_label="Discovered HAL data headers",
+        none_found_msg="No HAL data headers (hal_data.h) found.",
+        item_label="HAL Data",
+        header_desc="hal_data.h",
+        items=hal_data_list,
+        ports=ports,
+        matcher=find_matching_hal_data,
+        header_path=lambda h: h.hal_data_h,
+        include_dir=lambda h: h.include_dir,
+    )
 
 
 def print_cmsis(
     cmsis_list: Sequence[CMSISInfo],
     ports: Sequence[ComPortInfo],
 ) -> None:
-    print_section("CMSIS Headers")
-    print(f"Discovered CMSIS headers: {len(cmsis_list)}\n")
-
-    if not cmsis_list:
-        print("No CMSIS headers found.\n")
-        return
-
-    matched_cmsis, remaining = find_matching_cmsis(cmsis_list, ports)
-
-    if matched_cmsis is not None:
-        print("[CMSIS #1] [MATCHED TO DETECTED BOARD]")
-        print("  Header full path:")
-        print(indent(str(matched_cmsis.cmsis_h), "    "))
-        print("  Include directory (-I):")
-        print(indent(str(matched_cmsis.include_dir), "    "))
-        print()
-
-        for idx, cmsis in enumerate(remaining, start=2):
-            print(f"[CMSIS #{idx}]")
-            print("  Header full path:")
-            print(indent(str(cmsis.cmsis_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(cmsis.include_dir), "    "))
-            print()
-    else:
-        for idx, cmsis in enumerate(cmsis_list, start=1):
-            print(f"[CMSIS #{idx}]")
-            print("  Header full path:")
-            print(indent(str(cmsis.cmsis_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(cmsis.include_dir), "    "))
-            print()
+    _print_matched_headers(
+        section_title="CMSIS Headers",
+        discovered_label="Discovered CMSIS headers",
+        none_found_msg="No CMSIS headers found.",
+        item_label="CMSIS",
+        header_desc="Header",
+        items=cmsis_list,
+        ports=ports,
+        matcher=find_matching_cmsis,
+        header_path=lambda c: c.cmsis_h,
+        include_dir=lambda c: c.include_dir,
+    )
 
 
 def print_r_cgc(
     r_cgc_list: Sequence[RCGCInfo],
     ports: Sequence[ComPortInfo],
 ) -> None:
-    print_section("R_CGC Headers")
-    print(f"Discovered R_CGC headers: {len(r_cgc_list)}\n")
-
-    if not r_cgc_list:
-        print("No R_CGC headers (r_cgc.h) found.\n")
-        return
-
-    matched_r_cgc, remaining = find_matching_r_cgc(r_cgc_list, ports)
-
-    if matched_r_cgc is not None:
-        print("[R_CGC #1] [MATCHED TO DETECTED BOARD]")
-        print("  r_cgc.h full path:")
-        print(indent(str(matched_r_cgc.r_cgc_h), "    "))
-        print("  Include directory (-I):")
-        print(indent(str(matched_r_cgc.include_dir), "    "))
-        print()
-
-        for idx, r_cgc in enumerate(remaining, start=2):
-            print(f"[R_CGC #{idx}]")
-            print("  r_cgc.h full path:")
-            print(indent(str(r_cgc.r_cgc_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(r_cgc.include_dir), "    "))
-            print()
-    else:
-        for idx, r_cgc in enumerate(r_cgc_list, start=1):
-            print(f"[R_CGC #{idx}]")
-            print("  r_cgc.h full path:")
-            print(indent(str(r_cgc.r_cgc_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(r_cgc.include_dir), "    "))
-            print()
+    _print_matched_headers(
+        section_title="R_CGC Headers",
+        discovered_label="Discovered R_CGC headers",
+        none_found_msg="No R_CGC headers (r_cgc.h) found.",
+        item_label="R_CGC",
+        header_desc="r_cgc.h",
+        items=r_cgc_list,
+        ports=ports,
+        matcher=find_matching_r_cgc,
+        header_path=lambda r: r.r_cgc_h,
+        include_dir=lambda r: r.include_dir,
+    )
 
 
 def print_r_cgc_cfg(
     r_cgc_cfg_list: Sequence[RCGCCfgInfo],
     ports: Sequence[ComPortInfo],
 ) -> None:
-    print_section("R_CGC Configuration (r_cgc_cfg.h)")
-    print(f"Discovered R_CGC config headers: {len(r_cgc_cfg_list)}\n")
-
-    if not r_cgc_cfg_list:
-        print("No R_CGC config headers (r_cgc_cfg.h) found.\n")
-        return
-
-    matched_r_cgc_cfg, remaining = find_matching_r_cgc_cfg(
-        r_cgc_cfg_list,
-        ports,
+    _print_matched_headers(
+        section_title="R_CGC Configuration (r_cgc_cfg.h)",
+        discovered_label="Discovered R_CGC config headers",
+        none_found_msg="No R_CGC config headers (r_cgc_cfg.h) found.",
+        item_label="R_CGC Config",
+        header_desc="r_cgc_cfg.h",
+        items=r_cgc_cfg_list,
+        ports=ports,
+        matcher=find_matching_r_cgc_cfg,
+        header_path=lambda r: r.r_cgc_cfg_h,
+        include_dir=lambda r: r.include_dir,
     )
-
-    if matched_r_cgc_cfg is not None:
-        print("[R_CGC Config #1] [MATCHED TO DETECTED BOARD]")
-        print("  r_cgc_cfg.h full path:")
-        print(indent(str(matched_r_cgc_cfg.r_cgc_cfg_h), "    "))
-        print("  Include directory (-I):")
-        print(indent(str(matched_r_cgc_cfg.include_dir), "    "))
-        print()
-
-        for idx, r_cgc_cfg in enumerate(remaining, start=2):
-            print(f"[R_CGC Config #{idx}]")
-            print("  r_cgc_cfg.h full path:")
-            print(indent(str(r_cgc_cfg.r_cgc_cfg_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(r_cgc_cfg.include_dir), "    "))
-            print()
-    else:
-        for idx, r_cgc_cfg in enumerate(r_cgc_cfg_list, start=1):
-            print(f"[R_CGC Config #{idx}]")
-            print("  r_cgc_cfg.h full path:")
-            print(indent(str(r_cgc_cfg.r_cgc_cfg_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(r_cgc_cfg.include_dir), "    "))
-            print()
 
 
 def print_fsp_module_cfg(
     fsp_module_cfg_list: Sequence[FSPModuleCfgInfo],
     ports: Sequence[ComPortInfo],
 ) -> None:
-    print_section("FSP Module Configuration (r_*_cfg.h)")
-    print(f"Discovered FSP module config headers: {len(fsp_module_cfg_list)}\n")
-
-    if not fsp_module_cfg_list:
-        print("No FSP module config headers (r_*_cfg.h) found.\n")
-        return
-
-    matched_fsp_cfg, remaining = find_matching_fsp_module_cfg(
-        fsp_module_cfg_list,
-        ports,
+    _print_matched_headers(
+        section_title="FSP Module Configuration (r_*_cfg.h)",
+        discovered_label="Discovered FSP module config headers",
+        none_found_msg="No FSP module config headers (r_*_cfg.h) found.",
+        item_label="FSP Module Config",
+        header_desc="Config header",
+        items=fsp_module_cfg_list,
+        ports=ports,
+        matcher=find_matching_fsp_module_cfg,
+        header_path=lambda f: f.cfg_h,
+        include_dir=lambda f: f.include_dir,
     )
-
-    if matched_fsp_cfg is not None:
-        print("[FSP Module Config #1] [MATCHED TO DETECTED BOARD]")
-        print("  Config header full path:")
-        print(indent(str(matched_fsp_cfg.cfg_h), "    "))
-        print("  Include directory (-I):")
-        print(indent(str(matched_fsp_cfg.include_dir), "    "))
-        print()
-
-        for idx, fsp_cfg in enumerate(remaining, start=2):
-            print(f"[FSP Module Config #{idx}]")
-            print("  Config header full path:")
-            print(indent(str(fsp_cfg.cfg_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(fsp_cfg.include_dir), "    "))
-            print()
-    else:
-        for idx, fsp_cfg in enumerate(fsp_module_cfg_list, start=1):
-            print(f"[FSP Module Config #{idx}]")
-            print("  Config header full path:")
-            print(indent(str(fsp_cfg.cfg_h), "    "))
-            print("  Include directory (-I):")
-            print(indent(str(fsp_cfg.include_dir), "    "))
-            print()
 
 
 def print_com_ports(ports: Sequence[ComPortInfo]) -> None:
@@ -1539,7 +1416,9 @@ def main(argv: Sequence[str]) -> None:
     matched_r_cgc, _ = find_matching_r_cgc(r_cgc_headers, ports)
     suggested_r_cgc = [matched_r_cgc] if matched_r_cgc else r_cgc_headers
     matched_r_cgc_cfg, _ = find_matching_r_cgc_cfg(r_cgc_cfg_headers, ports)
-    suggested_r_cgc_cfg = [matched_r_cgc_cfg] if matched_r_cgc_cfg else r_cgc_cfg_headers
+    suggested_r_cgc_cfg = (
+        [matched_r_cgc_cfg] if matched_r_cgc_cfg else r_cgc_cfg_headers
+    )
     matched_fsp_module_cfg, _ = find_matching_fsp_module_cfg(
         fsp_module_cfg_headers,
         ports,
