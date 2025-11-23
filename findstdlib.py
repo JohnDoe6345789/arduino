@@ -6,14 +6,17 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
+    Callable,
     Dict,
     Iterable,
     List,
     Optional,
+    Protocol,
     Sequence,
     Set,
     Tuple,
     TYPE_CHECKING,
+    TypeVar,
 )
 
 
@@ -184,6 +187,92 @@ if TYPE_CHECKING:
 
 
 # =========================
+# Generic helpers for dedupe / matching
+# =========================
+
+
+class HasIncludeDir(Protocol):
+    include_dir: Path
+
+
+TInclude = TypeVar("TInclude", bound=HasIncludeDir)
+THeader = TypeVar("THeader")
+
+
+def _dedupe_by_include_dir(items: Iterable[TInclude]) -> List[TInclude]:
+    """
+    Generic deduplicator for any dataclass with an 'include_dir: Path' field.
+    """
+    seen: Set[Path] = set()
+    unique: List[TInclude] = []
+
+    for item in sorted(items, key=lambda x: str(x.include_dir)):
+        if item.include_dir in seen:
+            continue
+        seen.add(item.include_dir)
+        unique.append(item)
+
+    return unique
+
+
+def _select_detected_port(
+    ports: Sequence[ComPortInfo],
+) -> Optional[ComPortInfo]:
+    """
+    Prefer a genuine Arduino VID, otherwise fall back to the first port.
+    """
+    if not ports:
+        return None
+
+    for port in ports:
+        if port.vid in (0x2341, 0x2A03):
+            return port
+
+    return ports[0]
+
+
+def _variant_names_for_ports(
+    ports: Sequence[ComPortInfo],
+) -> List[str]:
+    detected = _select_detected_port(ports)
+    if detected is None:
+        return []
+
+    board_short = short_board_name(detected.vid, detected.pid)
+    variant_names = _BOARD_TO_VARIANT.get(board_short)
+
+    if not variant_names:
+        return []
+
+    return list(variant_names)
+
+
+def _match_header_by_variants(
+    items: Sequence[THeader],
+    ports: Sequence[ComPortInfo],
+    path_getter: Callable[[THeader], Path],
+) -> Tuple[Optional[THeader], List[THeader]]:
+    """
+    Shared matcher used by all find_matching_* helpers.
+    """
+    if not items:
+        return None, list(items)
+
+    variant_names = _variant_names_for_ports(ports)
+    if not variant_names:
+        return None, list(items)
+
+    for variant_name in variant_names:
+        variant_lower = variant_name.lower()
+        for item in items:
+            if variant_lower in str(path_getter(item)).lower():
+                remaining = [i for i in items if i is not item]
+                return item, remaining
+
+    return None, list(items)
+
+
+# =========================
 # pyserial handling
 # =========================
 
@@ -272,16 +361,7 @@ def find_arduino_headers(base_dir: Path) -> List[CoreInfo]:
 
 
 def _dedupe_cores(cores: Iterable[CoreInfo]) -> List[CoreInfo]:
-    seen: Set[Path] = set()
-    unique: List[CoreInfo] = []
-
-    for core in sorted(cores, key=lambda c: str(c.include_dir)):
-        if core.include_dir in seen:
-            continue
-        seen.add(core.include_dir)
-        unique.append(core)
-
-    return unique
+    return _dedupe_by_include_dir(cores)
 
 
 # =========================
@@ -299,18 +379,28 @@ _TOOLCHAIN_TOKENS: Sequence[str] = (
 
 
 def _find_compiler(include_dir: Path) -> Optional[Path]:
-    compiler_names = ["arm-none-eabi-gcc", "arm-none-eabi-g++", "gcc", "g++", "cc", "c++"]
-    
+    compiler_names = [
+        "arm-none-eabi-gcc",
+        "arm-none-eabi-g++",
+        "gcc",
+        "g++",
+        "cc",
+        "c++",
+    ]
+
     for parent in [include_dir.parent] + list(include_dir.parents[:3]):
         bin_dir = parent / "bin"
         if not bin_dir.is_dir():
             continue
-        
+
         for name in compiler_names:
-            compiler = bin_dir / f"{name}.exe" if platform.system() == "Windows" else bin_dir / name
+            if platform.system() == "Windows":
+                compiler = bin_dir / f"{name}.exe"
+            else:
+                compiler = bin_dir / name
             if compiler.is_file():
                 return compiler
-    
+
     return None
 
 
@@ -325,7 +415,13 @@ def find_stdlib_headers(base_dir: Path) -> List[ToolchainInfo]:
         if not path_contains_any(header, _TOOLCHAIN_TOKENS):
             continue
         compiler = _find_compiler(header.parent)
-        results.append(ToolchainInfo(stdlib_h=header, include_dir=header.parent, compiler_path=compiler))
+        results.append(
+            ToolchainInfo(
+                stdlib_h=header,
+                include_dir=header.parent,
+                compiler_path=compiler,
+            )
+        )
 
     return _dedupe_toolchains(results)
 
@@ -333,20 +429,11 @@ def find_stdlib_headers(base_dir: Path) -> List[ToolchainInfo]:
 def _dedupe_toolchains(
     toolchains: Iterable[ToolchainInfo],
 ) -> List[ToolchainInfo]:
-    seen: Set[Path] = set()
-    unique: List[ToolchainInfo] = []
-
-    for tc in sorted(toolchains, key=lambda t: str(t.include_dir)):
-        if tc.include_dir in seen:
-            continue
-        seen.add(tc.include_dir)
-        unique.append(tc)
-
-    return unique
+    return _dedupe_by_include_dir(toolchains)
 
 
 # =========================
-# BSP API discovery
+# BSP / FSP discovery
 # =========================
 
 def find_bsp_api_headers(base_dir: Path) -> List[BSPInfo]:
@@ -361,16 +448,7 @@ def find_bsp_api_headers(base_dir: Path) -> List[BSPInfo]:
 
 
 def _dedupe_bsp(bsp_list: Iterable[BSPInfo]) -> List[BSPInfo]:
-    seen: Set[Path] = set()
-    unique: List[BSPInfo] = []
-
-    for bsp in sorted(bsp_list, key=lambda b: str(b.include_dir)):
-        if bsp.include_dir in seen:
-            continue
-        seen.add(bsp.include_dir)
-        unique.append(bsp)
-
-    return unique
+    return _dedupe_by_include_dir(bsp_list)
 
 
 def find_fsp_common_api_headers(base_dir: Path) -> List[FSPCommonInfo]:
@@ -379,22 +457,20 @@ def find_fsp_common_api_headers(base_dir: Path) -> List[FSPCommonInfo]:
     for header in base_dir.rglob("fsp_common_api.h"):
         if not header.is_file():
             continue
-        results.append(FSPCommonInfo(fsp_common_api_h=header, include_dir=header.parent))
+        results.append(
+            FSPCommonInfo(
+                fsp_common_api_h=header,
+                include_dir=header.parent,
+            )
+        )
 
     return _dedupe_fsp_common(results)
 
 
-def _dedupe_fsp_common(fsp_list: Iterable[FSPCommonInfo]) -> List[FSPCommonInfo]:
-    seen: Set[Path] = set()
-    unique: List[FSPCommonInfo] = []
-
-    for fsp in sorted(fsp_list, key=lambda f: str(f.include_dir)):
-        if fsp.include_dir in seen:
-            continue
-        seen.add(fsp.include_dir)
-        unique.append(fsp)
-
-    return unique
+def _dedupe_fsp_common(
+    fsp_list: Iterable[FSPCommonInfo],
+) -> List[FSPCommonInfo]:
+    return _dedupe_by_include_dir(fsp_list)
 
 
 def find_bsp_cfg_headers(base_dir: Path) -> List[BSPCfgInfo]:
@@ -408,17 +484,10 @@ def find_bsp_cfg_headers(base_dir: Path) -> List[BSPCfgInfo]:
     return _dedupe_bsp_cfg(results)
 
 
-def _dedupe_bsp_cfg(bsp_cfg_list: Iterable[BSPCfgInfo]) -> List[BSPCfgInfo]:
-    seen: Set[Path] = set()
-    unique: List[BSPCfgInfo] = []
-
-    for bsp_cfg in sorted(bsp_cfg_list, key=lambda b: str(b.include_dir)):
-        if bsp_cfg.include_dir in seen:
-            continue
-        seen.add(bsp_cfg.include_dir)
-        unique.append(bsp_cfg)
-
-    return unique
+def _dedupe_bsp_cfg(
+    bsp_cfg_list: Iterable[BSPCfgInfo],
+) -> List[BSPCfgInfo]:
+    return _dedupe_by_include_dir(bsp_cfg_list)
 
 
 def find_hal_data_headers(base_dir: Path) -> List[HALDataInfo]:
@@ -427,28 +496,32 @@ def find_hal_data_headers(base_dir: Path) -> List[HALDataInfo]:
     for header in base_dir.rglob("hal_data.h"):
         if not header.is_file():
             continue
-        results.append(HALDataInfo(hal_data_h=header, include_dir=header.parent))
+        results.append(
+            HALDataInfo(
+                hal_data_h=header,
+                include_dir=header.parent,
+            )
+        )
 
     return _dedupe_hal_data(results)
 
 
-def _dedupe_hal_data(hal_data_list: Iterable[HALDataInfo]) -> List[HALDataInfo]:
-    seen: Set[Path] = set()
-    unique: List[HALDataInfo] = []
-
-    for hal_data in sorted(hal_data_list, key=lambda h: str(h.include_dir)):
-        if hal_data.include_dir in seen:
-            continue
-        seen.add(hal_data.include_dir)
-        unique.append(hal_data)
-
-    return unique
+def _dedupe_hal_data(
+    hal_data_list: Iterable[HALDataInfo],
+) -> List[HALDataInfo]:
+    return _dedupe_by_include_dir(hal_data_list)
 
 
 def find_cmsis_headers(base_dir: Path) -> List[CMSISInfo]:
     results: List[CMSISInfo] = []
-    
-    cmsis_patterns = ("cmsis_device.h", "core_cm0.h", "core_cm3.h", "core_cm4.h", "core_cm7.h")
+
+    cmsis_patterns = (
+        "cmsis_device.h",
+        "core_cm0.h",
+        "core_cm3.h",
+        "core_cm4.h",
+        "core_cm7.h",
+    )
 
     for pattern in cmsis_patterns:
         for header in base_dir.rglob(pattern):
@@ -459,17 +532,10 @@ def find_cmsis_headers(base_dir: Path) -> List[CMSISInfo]:
     return _dedupe_cmsis(results)
 
 
-def _dedupe_cmsis(cmsis_list: Iterable[CMSISInfo]) -> List[CMSISInfo]:
-    seen: Set[Path] = set()
-    unique: List[CMSISInfo] = []
-
-    for cmsis in sorted(cmsis_list, key=lambda c: str(c.include_dir)):
-        if cmsis.include_dir in seen:
-            continue
-        seen.add(cmsis.include_dir)
-        unique.append(cmsis)
-
-    return unique
+def _dedupe_cmsis(
+    cmsis_list: Iterable[CMSISInfo],
+) -> List[CMSISInfo]:
+    return _dedupe_by_include_dir(cmsis_list)
 
 
 def find_r_cgc_headers(base_dir: Path) -> List[RCGCInfo]:
@@ -483,17 +549,10 @@ def find_r_cgc_headers(base_dir: Path) -> List[RCGCInfo]:
     return _dedupe_r_cgc(results)
 
 
-def _dedupe_r_cgc(r_cgc_list: Iterable[RCGCInfo]) -> List[RCGCInfo]:
-    seen: Set[Path] = set()
-    unique: List[RCGCInfo] = []
-
-    for r_cgc in sorted(r_cgc_list, key=lambda r: str(r.include_dir)):
-        if r_cgc.include_dir in seen:
-            continue
-        seen.add(r_cgc.include_dir)
-        unique.append(r_cgc)
-
-    return unique
+def _dedupe_r_cgc(
+    r_cgc_list: Iterable[RCGCInfo],
+) -> List[RCGCInfo]:
+    return _dedupe_by_include_dir(r_cgc_list)
 
 
 def find_r_cgc_cfg_headers(base_dir: Path) -> List[RCGCCfgInfo]:
@@ -502,22 +561,20 @@ def find_r_cgc_cfg_headers(base_dir: Path) -> List[RCGCCfgInfo]:
     for header in base_dir.rglob("r_cgc_cfg.h"):
         if not header.is_file():
             continue
-        results.append(RCGCCfgInfo(r_cgc_cfg_h=header, include_dir=header.parent))
+        results.append(
+            RCGCCfgInfo(
+                r_cgc_cfg_h=header,
+                include_dir=header.parent,
+            )
+        )
 
     return _dedupe_r_cgc_cfg(results)
 
 
-def _dedupe_r_cgc_cfg(r_cgc_cfg_list: Iterable[RCGCCfgInfo]) -> List[RCGCCfgInfo]:
-    seen: Set[Path] = set()
-    unique: List[RCGCCfgInfo] = []
-
-    for r_cgc_cfg in sorted(r_cgc_cfg_list, key=lambda r: str(r.include_dir)):
-        if r_cgc_cfg.include_dir in seen:
-            continue
-        seen.add(r_cgc_cfg.include_dir)
-        unique.append(r_cgc_cfg)
-
-    return unique
+def _dedupe_r_cgc_cfg(
+    r_cgc_cfg_list: Iterable[RCGCCfgInfo],
+) -> List[RCGCCfgInfo]:
+    return _dedupe_by_include_dir(r_cgc_cfg_list)
 
 
 def find_fsp_module_cfg_headers(base_dir: Path) -> List[FSPModuleCfgInfo]:
@@ -528,326 +585,108 @@ def find_fsp_module_cfg_headers(base_dir: Path) -> List[FSPModuleCfgInfo]:
             continue
         if header.name == "r_cgc_cfg.h":
             continue
-        results.append(FSPModuleCfgInfo(cfg_h=header, include_dir=header.parent))
+        results.append(
+            FSPModuleCfgInfo(
+                cfg_h=header,
+                include_dir=header.parent,
+            )
+        )
 
     return _dedupe_fsp_module_cfg(results)
 
 
-def _dedupe_fsp_module_cfg(fsp_module_cfg_list: Iterable[FSPModuleCfgInfo]) -> List[FSPModuleCfgInfo]:
-    seen: Set[Path] = set()
-    unique: List[FSPModuleCfgInfo] = []
-
-    for fsp_cfg in sorted(fsp_module_cfg_list, key=lambda f: str(f.include_dir)):
-        if fsp_cfg.include_dir in seen:
-            continue
-        seen.add(fsp_cfg.include_dir)
-        unique.append(fsp_cfg)
-
-    return unique
+def _dedupe_fsp_module_cfg(
+    fsp_module_cfg_list: Iterable[FSPModuleCfgInfo],
+) -> List[FSPModuleCfgInfo]:
+    return _dedupe_by_include_dir(fsp_module_cfg_list)
 
 
 def find_matching_bsp(
     bsp_list: Sequence[BSPInfo],
     ports: Sequence[ComPortInfo],
 ) -> Tuple[Optional[BSPInfo], List[BSPInfo]]:
-    if not ports or not bsp_list:
-        return None, list(bsp_list)
-
-    detected_port = None
-    for p in ports:
-        if p.vid in (0x2341, 0x2A03):
-            detected_port = p
-            break
-    
-    if detected_port is None:
-        detected_port = ports[0] if ports else None
-
-    if detected_port is None:
-        return None, list(bsp_list)
-
-    board_short = short_board_name(detected_port.vid, detected_port.pid)
-    variant_names = _BOARD_TO_VARIANT.get(board_short)
-
-    if variant_names is None:
-        return None, list(bsp_list)
-
-    if not isinstance(variant_names, list):
-        variant_names = [variant_names]
-
-    for variant_name in variant_names:
-        for bsp in bsp_list:
-            bsp_path_lower = str(bsp.bsp_api_h).lower()
-            if variant_name.lower() in bsp_path_lower:
-                remaining = [b for b in bsp_list if b != bsp]
-                return bsp, remaining
-
-    return None, list(bsp_list)
+    return _match_header_by_variants(
+        bsp_list,
+        ports,
+        lambda b: b.bsp_api_h,
+    )
 
 
 def find_matching_fsp_common(
     fsp_list: Sequence[FSPCommonInfo],
     ports: Sequence[ComPortInfo],
 ) -> Tuple[Optional[FSPCommonInfo], List[FSPCommonInfo]]:
-    if not ports or not fsp_list:
-        return None, list(fsp_list)
-
-    detected_port = None
-    for p in ports:
-        if p.vid in (0x2341, 0x2A03):
-            detected_port = p
-            break
-    
-    if detected_port is None:
-        detected_port = ports[0] if ports else None
-
-    if detected_port is None:
-        return None, list(fsp_list)
-
-    board_short = short_board_name(detected_port.vid, detected_port.pid)
-    variant_names = _BOARD_TO_VARIANT.get(board_short)
-
-    if variant_names is None:
-        return None, list(fsp_list)
-
-    if not isinstance(variant_names, list):
-        variant_names = [variant_names]
-
-    for variant_name in variant_names:
-        for fsp in fsp_list:
-            fsp_path_lower = str(fsp.fsp_common_api_h).lower()
-            if variant_name.lower() in fsp_path_lower:
-                remaining = [f for f in fsp_list if f != fsp]
-                return fsp, remaining
-
-    return None, list(fsp_list)
+    return _match_header_by_variants(
+        fsp_list,
+        ports,
+        lambda f: f.fsp_common_api_h,
+    )
 
 
 def find_matching_bsp_cfg(
     bsp_cfg_list: Sequence[BSPCfgInfo],
     ports: Sequence[ComPortInfo],
 ) -> Tuple[Optional[BSPCfgInfo], List[BSPCfgInfo]]:
-    if not ports or not bsp_cfg_list:
-        return None, list(bsp_cfg_list)
-
-    detected_port = None
-    for p in ports:
-        if p.vid in (0x2341, 0x2A03):
-            detected_port = p
-            break
-    
-    if detected_port is None:
-        detected_port = ports[0] if ports else None
-
-    if detected_port is None:
-        return None, list(bsp_cfg_list)
-
-    board_short = short_board_name(detected_port.vid, detected_port.pid)
-    variant_names = _BOARD_TO_VARIANT.get(board_short)
-
-    if variant_names is None:
-        return None, list(bsp_cfg_list)
-
-    if not isinstance(variant_names, list):
-        variant_names = [variant_names]
-
-    for variant_name in variant_names:
-        for bsp_cfg in bsp_cfg_list:
-            bsp_cfg_path_lower = str(bsp_cfg.bsp_cfg_h).lower()
-            if variant_name.lower() in bsp_cfg_path_lower:
-                remaining = [b for b in bsp_cfg_list if b != bsp_cfg]
-                return bsp_cfg, remaining
-
-    return None, list(bsp_cfg_list)
+    return _match_header_by_variants(
+        bsp_cfg_list,
+        ports,
+        lambda b: b.bsp_cfg_h,
+    )
 
 
 def find_matching_hal_data(
     hal_data_list: Sequence[HALDataInfo],
     ports: Sequence[ComPortInfo],
 ) -> Tuple[Optional[HALDataInfo], List[HALDataInfo]]:
-    if not ports or not hal_data_list:
-        return None, list(hal_data_list)
-
-    detected_port = None
-    for p in ports:
-        if p.vid in (0x2341, 0x2A03):
-            detected_port = p
-            break
-    
-    if detected_port is None:
-        detected_port = ports[0] if ports else None
-
-    if detected_port is None:
-        return None, list(hal_data_list)
-
-    board_short = short_board_name(detected_port.vid, detected_port.pid)
-    variant_names = _BOARD_TO_VARIANT.get(board_short)
-
-    if variant_names is None:
-        return None, list(hal_data_list)
-
-    if not isinstance(variant_names, list):
-        variant_names = [variant_names]
-
-    for variant_name in variant_names:
-        for hal_data in hal_data_list:
-            hal_data_path_lower = str(hal_data.hal_data_h).lower()
-            if variant_name.lower() in hal_data_path_lower:
-                remaining = [h for h in hal_data_list if h != hal_data]
-                return hal_data, remaining
-
-    return None, list(hal_data_list)
+    return _match_header_by_variants(
+        hal_data_list,
+        ports,
+        lambda h: h.hal_data_h,
+    )
 
 
 def find_matching_cmsis(
     cmsis_list: Sequence[CMSISInfo],
     ports: Sequence[ComPortInfo],
 ) -> Tuple[Optional[CMSISInfo], List[CMSISInfo]]:
-    if not ports or not cmsis_list:
-        return None, list(cmsis_list)
-
-    detected_port = None
-    for p in ports:
-        if p.vid in (0x2341, 0x2A03):
-            detected_port = p
-            break
-    
-    if detected_port is None:
-        detected_port = ports[0] if ports else None
-
-    if detected_port is None:
-        return None, list(cmsis_list)
-
-    board_short = short_board_name(detected_port.vid, detected_port.pid)
-    variant_names = _BOARD_TO_VARIANT.get(board_short)
-
-    if variant_names is None:
-        return None, list(cmsis_list)
-
-    if not isinstance(variant_names, list):
-        variant_names = [variant_names]
-
-    for variant_name in variant_names:
-        for cmsis in cmsis_list:
-            cmsis_path_lower = str(cmsis.cmsis_h).lower()
-            if variant_name.lower() in cmsis_path_lower:
-                remaining = [c for c in cmsis_list if c != cmsis]
-                return cmsis, remaining
-
-    return None, list(cmsis_list)
+    return _match_header_by_variants(
+        cmsis_list,
+        ports,
+        lambda c: c.cmsis_h,
+    )
 
 
 def find_matching_r_cgc(
     r_cgc_list: Sequence[RCGCInfo],
     ports: Sequence[ComPortInfo],
 ) -> Tuple[Optional[RCGCInfo], List[RCGCInfo]]:
-    if not ports or not r_cgc_list:
-        return None, list(r_cgc_list)
-
-    detected_port = None
-    for p in ports:
-        if p.vid in (0x2341, 0x2A03):
-            detected_port = p
-            break
-    
-    if detected_port is None:
-        detected_port = ports[0] if ports else None
-
-    if detected_port is None:
-        return None, list(r_cgc_list)
-
-    board_short = short_board_name(detected_port.vid, detected_port.pid)
-    variant_names = _BOARD_TO_VARIANT.get(board_short)
-
-    if variant_names is None:
-        return None, list(r_cgc_list)
-
-    if not isinstance(variant_names, list):
-        variant_names = [variant_names]
-
-    for variant_name in variant_names:
-        for r_cgc in r_cgc_list:
-            r_cgc_path_lower = str(r_cgc.r_cgc_h).lower()
-            if variant_name.lower() in r_cgc_path_lower:
-                remaining = [r for r in r_cgc_list if r != r_cgc]
-                return r_cgc, remaining
-
-    return None, list(r_cgc_list)
+    return _match_header_by_variants(
+        r_cgc_list,
+        ports,
+        lambda r: r.r_cgc_h,
+    )
 
 
 def find_matching_r_cgc_cfg(
     r_cgc_cfg_list: Sequence[RCGCCfgInfo],
     ports: Sequence[ComPortInfo],
 ) -> Tuple[Optional[RCGCCfgInfo], List[RCGCCfgInfo]]:
-    if not ports or not r_cgc_cfg_list:
-        return None, list(r_cgc_cfg_list)
-
-    detected_port = None
-    for p in ports:
-        if p.vid in (0x2341, 0x2A03):
-            detected_port = p
-            break
-    
-    if detected_port is None:
-        detected_port = ports[0] if ports else None
-
-    if detected_port is None:
-        return None, list(r_cgc_cfg_list)
-
-    board_short = short_board_name(detected_port.vid, detected_port.pid)
-    variant_names = _BOARD_TO_VARIANT.get(board_short)
-
-    if variant_names is None:
-        return None, list(r_cgc_cfg_list)
-
-    if not isinstance(variant_names, list):
-        variant_names = [variant_names]
-
-    for variant_name in variant_names:
-        for r_cgc_cfg in r_cgc_cfg_list:
-            r_cgc_cfg_path_lower = str(r_cgc_cfg.r_cgc_cfg_h).lower()
-            if variant_name.lower() in r_cgc_cfg_path_lower:
-                remaining = [r for r in r_cgc_cfg_list if r != r_cgc_cfg]
-                return r_cgc_cfg, remaining
-
-    return None, list(r_cgc_cfg_list)
+    return _match_header_by_variants(
+        r_cgc_cfg_list,
+        ports,
+        lambda r: r.r_cgc_cfg_h,
+    )
 
 
 def find_matching_fsp_module_cfg(
     fsp_module_cfg_list: Sequence[FSPModuleCfgInfo],
     ports: Sequence[ComPortInfo],
 ) -> Tuple[Optional[FSPModuleCfgInfo], List[FSPModuleCfgInfo]]:
-    if not ports or not fsp_module_cfg_list:
-        return None, list(fsp_module_cfg_list)
-
-    detected_port = None
-    for p in ports:
-        if p.vid in (0x2341, 0x2A03):
-            detected_port = p
-            break
-    
-    if detected_port is None:
-        detected_port = ports[0] if ports else None
-
-    if detected_port is None:
-        return None, list(fsp_module_cfg_list)
-
-    board_short = short_board_name(detected_port.vid, detected_port.pid)
-    variant_names = _BOARD_TO_VARIANT.get(board_short)
-
-    if variant_names is None:
-        return None, list(fsp_module_cfg_list)
-
-    if not isinstance(variant_names, list):
-        variant_names = [variant_names]
-
-    for variant_name in variant_names:
-        for fsp_cfg in fsp_module_cfg_list:
-            fsp_cfg_path_lower = str(fsp_cfg.cfg_h).lower()
-            if variant_name.lower() in fsp_cfg_path_lower:
-                remaining = [f for f in fsp_module_cfg_list if f != fsp_cfg]
-                return fsp_cfg, remaining
-
-    return None, list(fsp_module_cfg_list)
+    return _match_header_by_variants(
+        fsp_module_cfg_list,
+        ports,
+        lambda f: f.cfg_h,
+    )
 
 
 # =========================
@@ -1201,7 +1040,10 @@ def print_bsp(bsp_list: Sequence[BSPInfo], ports: Sequence[ComPortInfo]) -> None
             print()
 
 
-def print_fsp_common(fsp_list: Sequence[FSPCommonInfo], ports: Sequence[ComPortInfo]) -> None:
+def print_fsp_common(
+    fsp_list: Sequence[FSPCommonInfo],
+    ports: Sequence[ComPortInfo],
+) -> None:
     print_section("FSP Common API (fsp_common_api.h)")
     print(f"Discovered FSP common headers: {len(fsp_list)}\n")
 
@@ -1217,6 +1059,7 @@ def print_fsp_common(fsp_list: Sequence[FSPCommonInfo], ports: Sequence[ComPortI
         print(indent(str(matched_fsp.fsp_common_api_h), "    "))
         print("  Include directory (-I):")
         print(indent(str(matched_fsp.include_dir), "    "))
+
         print()
 
         for idx, fsp in enumerate(remaining, start=2):
@@ -1236,7 +1079,10 @@ def print_fsp_common(fsp_list: Sequence[FSPCommonInfo], ports: Sequence[ComPortI
             print()
 
 
-def print_bsp_cfg(bsp_cfg_list: Sequence[BSPCfgInfo], ports: Sequence[ComPortInfo]) -> None:
+def print_bsp_cfg(
+    bsp_cfg_list: Sequence[BSPCfgInfo],
+    ports: Sequence[ComPortInfo],
+) -> None:
     print_section("BSP Configuration (bsp_cfg.h)")
     print(f"Discovered BSP config headers: {len(bsp_cfg_list)}\n")
 
@@ -1271,7 +1117,10 @@ def print_bsp_cfg(bsp_cfg_list: Sequence[BSPCfgInfo], ports: Sequence[ComPortInf
             print()
 
 
-def print_hal_data(hal_data_list: Sequence[HALDataInfo], ports: Sequence[ComPortInfo]) -> None:
+def print_hal_data(
+    hal_data_list: Sequence[HALDataInfo],
+    ports: Sequence[ComPortInfo],
+) -> None:
     print_section("HAL Data (hal_data.h)")
     print(f"Discovered HAL data headers: {len(hal_data_list)}\n")
 
@@ -1306,7 +1155,10 @@ def print_hal_data(hal_data_list: Sequence[HALDataInfo], ports: Sequence[ComPort
             print()
 
 
-def print_cmsis(cmsis_list: Sequence[CMSISInfo], ports: Sequence[ComPortInfo]) -> None:
+def print_cmsis(
+    cmsis_list: Sequence[CMSISInfo],
+    ports: Sequence[ComPortInfo],
+) -> None:
     print_section("CMSIS Headers")
     print(f"Discovered CMSIS headers: {len(cmsis_list)}\n")
 
@@ -1341,7 +1193,10 @@ def print_cmsis(cmsis_list: Sequence[CMSISInfo], ports: Sequence[ComPortInfo]) -
             print()
 
 
-def print_r_cgc(r_cgc_list: Sequence[RCGCInfo], ports: Sequence[ComPortInfo]) -> None:
+def print_r_cgc(
+    r_cgc_list: Sequence[RCGCInfo],
+    ports: Sequence[ComPortInfo],
+) -> None:
     print_section("R_CGC Headers")
     print(f"Discovered R_CGC headers: {len(r_cgc_list)}\n")
 
@@ -1376,7 +1231,10 @@ def print_r_cgc(r_cgc_list: Sequence[RCGCInfo], ports: Sequence[ComPortInfo]) ->
             print()
 
 
-def print_r_cgc_cfg(r_cgc_cfg_list: Sequence[RCGCCfgInfo], ports: Sequence[ComPortInfo]) -> None:
+def print_r_cgc_cfg(
+    r_cgc_cfg_list: Sequence[RCGCCfgInfo],
+    ports: Sequence[ComPortInfo],
+) -> None:
     print_section("R_CGC Configuration (r_cgc_cfg.h)")
     print(f"Discovered R_CGC config headers: {len(r_cgc_cfg_list)}\n")
 
@@ -1384,7 +1242,10 @@ def print_r_cgc_cfg(r_cgc_cfg_list: Sequence[RCGCCfgInfo], ports: Sequence[ComPo
         print("No R_CGC config headers (r_cgc_cfg.h) found.\n")
         return
 
-    matched_r_cgc_cfg, remaining = find_matching_r_cgc_cfg(r_cgc_cfg_list, ports)
+    matched_r_cgc_cfg, remaining = find_matching_r_cgc_cfg(
+        r_cgc_cfg_list,
+        ports,
+    )
 
     if matched_r_cgc_cfg is not None:
         print("[R_CGC Config #1] [MATCHED TO DETECTED BOARD]")
@@ -1411,7 +1272,10 @@ def print_r_cgc_cfg(r_cgc_cfg_list: Sequence[RCGCCfgInfo], ports: Sequence[ComPo
             print()
 
 
-def print_fsp_module_cfg(fsp_module_cfg_list: Sequence[FSPModuleCfgInfo], ports: Sequence[ComPortInfo]) -> None:
+def print_fsp_module_cfg(
+    fsp_module_cfg_list: Sequence[FSPModuleCfgInfo],
+    ports: Sequence[ComPortInfo],
+) -> None:
     print_section("FSP Module Configuration (r_*_cfg.h)")
     print(f"Discovered FSP module config headers: {len(fsp_module_cfg_list)}\n")
 
@@ -1419,7 +1283,10 @@ def print_fsp_module_cfg(fsp_module_cfg_list: Sequence[FSPModuleCfgInfo], ports:
         print("No FSP module config headers (r_*_cfg.h) found.\n")
         return
 
-    matched_fsp_cfg, remaining = find_matching_fsp_module_cfg(fsp_module_cfg_list, ports)
+    matched_fsp_cfg, remaining = find_matching_fsp_module_cfg(
+        fsp_module_cfg_list,
+        ports,
+    )
 
     if matched_fsp_cfg is not None:
         print("[FSP Module Config #1] [MATCHED TO DETECTED BOARD]")
@@ -1488,13 +1355,13 @@ def print_suggested_flags(
     bsp_headers: Sequence[BSPInfo],
     extra_core_includes: Set[Path],
     extra_tc_includes: Set[Path],
-    fsp_headers: Sequence[FSPCommonInfo] = None,
-    bsp_cfg_headers: Sequence[BSPCfgInfo] = None,
-    hal_data_headers: Sequence[HALDataInfo] = None,
-    cmsis_headers: Sequence[CMSISInfo] = None,
-    r_cgc_headers: Sequence[RCGCInfo] = None,
-    r_cgc_cfg_headers: Sequence[RCGCCfgInfo] = None,
-    fsp_module_cfg_headers: Sequence[FSPModuleCfgInfo] = None,
+    fsp_headers: Sequence[FSPCommonInfo] | None = None,
+    bsp_cfg_headers: Sequence[BSPCfgInfo] | None = None,
+    hal_data_headers: Sequence[HALDataInfo] | None = None,
+    cmsis_headers: Sequence[CMSISInfo] | None = None,
+    r_cgc_headers: Sequence[RCGCInfo] | None = None,
+    r_cgc_cfg_headers: Sequence[RCGCCfgInfo] | None = None,
+    fsp_module_cfg_headers: Sequence[FSPModuleCfgInfo] | None = None,
 ) -> None:
     if fsp_headers is None:
         fsp_headers = []
@@ -1658,7 +1525,7 @@ def main(argv: Sequence[str]) -> None:
     print_r_cgc_cfg(r_cgc_cfg_headers, ports)
     print_fsp_module_cfg(fsp_module_cfg_headers, ports)
     print_com_ports(ports)
-    
+
     matched_bsp, _ = find_matching_bsp(bsp_headers, ports)
     suggested_bsp = [matched_bsp] if matched_bsp else bsp_headers
     matched_fsp, _ = find_matching_fsp_common(fsp_common_headers, ports)
@@ -1673,9 +1540,28 @@ def main(argv: Sequence[str]) -> None:
     suggested_r_cgc = [matched_r_cgc] if matched_r_cgc else r_cgc_headers
     matched_r_cgc_cfg, _ = find_matching_r_cgc_cfg(r_cgc_cfg_headers, ports)
     suggested_r_cgc_cfg = [matched_r_cgc_cfg] if matched_r_cgc_cfg else r_cgc_cfg_headers
-    matched_fsp_module_cfg, _ = find_matching_fsp_module_cfg(fsp_module_cfg_headers, ports)
-    suggested_fsp_module_cfg = [matched_fsp_module_cfg] if matched_fsp_module_cfg else fsp_module_cfg_headers
-    print_suggested_flags(cores, toolchains, suggested_bsp, extra_core_includes, extra_tc_includes, suggested_fsp, suggested_bsp_cfg, suggested_hal_data, suggested_cmsis, suggested_r_cgc, suggested_r_cgc_cfg, suggested_fsp_module_cfg)
+    matched_fsp_module_cfg, _ = find_matching_fsp_module_cfg(
+        fsp_module_cfg_headers,
+        ports,
+    )
+    suggested_fsp_module_cfg = (
+        [matched_fsp_module_cfg] if matched_fsp_module_cfg else fsp_module_cfg_headers
+    )
+
+    print_suggested_flags(
+        cores,
+        toolchains,
+        suggested_bsp,
+        extra_core_includes,
+        extra_tc_includes,
+        suggested_fsp,
+        suggested_bsp_cfg,
+        suggested_hal_data,
+        suggested_cmsis,
+        suggested_r_cgc,
+        suggested_r_cgc_cfg,
+        suggested_fsp_module_cfg,
+    )
 
 
 if __name__ == "__main__":
