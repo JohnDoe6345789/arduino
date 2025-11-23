@@ -1,0 +1,13 @@
+Arduino core include paths:
+  -I"C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino"
+
+Extra Arduino core friend include paths:
+  -I"C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino\api"
+  -I"C:\Users\richa\Documents\ArduinoData\packages\arduino\hardware\renesas_uno\1.5.1\cores\arduino\api\deprecated"
+
+Toolchain C library include paths:
+  -I"C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\arm-none-eabi\include"
+
+Extra toolchain friend include paths:
+  -I"C:\Users\richa\Documents\ArduinoData\packages\arduino\tools\arm-none-eabi-gcc\7-2017q4\lib\gcc\arm-none-eabi\7.2.1\include"
+
