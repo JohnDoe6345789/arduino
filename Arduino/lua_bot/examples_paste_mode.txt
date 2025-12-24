@@ -1,0 +1,341 @@
+# Paste Mode Examples - Control Structures
+# For Arduino Lua Bot with Code Compression
+# Use 'startpaste' to begin, paste code, then 'endpaste' to execute
+
+# ============================================
+# HOW TO USE PASTE MODE
+# ============================================
+
+# 1. Type: startpaste
+# 2. Paste your code (can be many lines)
+# 3. Type: endpaste
+# 4. Your code will be compressed and executed!
+
+# The bot compresses keywords like "if", "while", "for", "digitalWrite"
+# into single bytes internally, allowing you to paste LOTS of code!
+
+# ============================================
+# EXAMPLE 1: Simple If Statement
+# ============================================
+
+startpaste
+x = 10
+if x > 5 then
+  print("x is greater than 5")
+  setRGB(0, 255, 0)
+else
+  print("x is 5 or less")
+  setRGB(255, 0, 0)
+end
+endpaste
+
+# ============================================
+# EXAMPLE 2: While Loop - Countdown
+# ============================================
+
+startpaste
+count = 5
+while count > 0 do
+  print("Countdown:")
+  setRGB(255, 0, 0)
+  delay(500)
+  setRGB(0, 0, 0)
+  delay(500)
+  count = count - 1
+end
+print("Blastoff!")
+setRGB(0, 255, 0)
+endpaste
+
+# ============================================
+# EXAMPLE 3: For Loop - LED Fade
+# ============================================
+
+startpaste
+for brightness = 0, 255, 25 do
+  setRGB(brightness, 0, 0)
+  delay(100)
+end
+delay(500)
+for brightness = 255, 0, -25 do
+  setRGB(brightness, 0, 0)
+  delay(100)
+end
+endpaste
+
+# ============================================
+# EXAMPLE 4: Nested Loops - Color Cycle
+# ============================================
+
+startpaste
+for cycle = 1, 3 do
+  for r = 0, 255, 85 do
+    setRGB(r, 0, 255 - r)
+    delay(200)
+  end
+end
+setRGB(0, 0, 0)
+endpaste
+
+# ============================================
+# EXAMPLE 5: If-Elseif-Else Chain
+# ============================================
+
+startpaste
+temperature = 25
+if temperature > 30 then
+  print("Hot!")
+  setRGB(255, 0, 0)
+elseif temperature > 20 then
+  print("Comfortable")
+  setRGB(0, 255, 0)
+elseif temperature > 10 then
+  print("Cool")
+  setRGB(0, 0, 255)
+else
+  print("Cold!")
+  setRGB(128, 0, 128)
+end
+delay(2000)
+setRGB(0, 0, 0)
+endpaste
+
+# ============================================
+# EXAMPLE 6: While with Condition
+# ============================================
+
+startpaste
+brightness = 0
+while brightness <= 255 do
+  setRGB(0, brightness, 255 - brightness)
+  delay(50)
+  brightness = brightness + 15
+end
+endpaste
+
+# ============================================
+# EXAMPLE 7: Complex LED Pattern
+# ============================================
+
+startpaste
+-- Rainbow breathing effect
+for cycle = 1, 2 do
+  -- Fade in red
+  for i = 0, 255, 25 do
+    setRGB(i, 0, 0)
+    delay(50)
+  end
+  -- Transition to green
+  for i = 0, 255, 25 do
+    setRGB(255 - i, i, 0)
+    delay(50)
+  end
+  -- Transition to blue
+  for i = 0, 255, 25 do
+    setRGB(0, 255 - i, i)
+    delay(50)
+  end
+  -- Fade out
+  for i = 255, 0, -25 do
+    setRGB(0, 0, i)
+    delay(50)
+  end
+  delay(500)
+end
+endpaste
+
+# ============================================
+# EXAMPLE 8: Interactive Logic
+# ============================================
+
+startpaste
+-- Check sensor and respond
+sensor_val = analogRead(A0)
+threshold = 500
+
+if sensor_val > threshold then
+  print("Sensor HIGH")
+  -- Flash red 3 times
+  for i = 1, 3 do
+    setRGB(255, 0, 0)
+    delay(200)
+    setRGB(0, 0, 0)
+    delay(200)
+  end
+else
+  print("Sensor LOW")
+  -- Pulse green
+  for brightness = 50, 255, 50 do
+    setRGB(0, brightness, 0)
+    delay(100)
+  end
+end
+endpaste
+
+# ============================================
+# EXAMPLE 9: Traffic Light Simulation
+# ============================================
+
+startpaste
+for cycle = 1, 3 do
+  -- Green
+  setRGB(0, 255, 0)
+  delay(2000)
+  -- Yellow
+  setRGB(255, 255, 0)
+  delay(1000)
+  -- Red
+  setRGB(255, 0, 0)
+  delay(2000)
+end
+setRGB(0, 0, 0)
+endpaste
+
+# ============================================
+# EXAMPLE 10: Conditional Loops
+# ============================================
+
+startpaste
+x = 0
+while x < 10 do
+  if x < 5 then
+    setRGB(255, 0, 0)
+  else
+    setRGB(0, 0, 255)
+  end
+  delay(300)
+  x = x + 1
+end
+setRGB(0, 0, 0)
+endpaste
+
+# ============================================
+# EXAMPLE 11: Police Lights with Loop
+# ============================================
+
+startpaste
+for i = 1, 5 do
+  -- Red flash
+  setRGB(255, 0, 0)
+  delay(150)
+  setRGB(0, 0, 0)
+  delay(150)
+  setRGB(255, 0, 0)
+  delay(150)
+  setRGB(0, 0, 0)
+  delay(300)
+  -- Blue flash
+  setRGB(0, 0, 255)
+  delay(150)
+  setRGB(0, 0, 0)
+  delay(150)
+  setRGB(0, 0, 255)
+  delay(150)
+  setRGB(0, 0, 0)
+  delay(300)
+end
+endpaste
+
+# ============================================
+# EXAMPLE 12: Random Colors with Loop
+# ============================================
+
+startpaste
+for i = 1, 10 do
+  r = random(0, 256)
+  g = random(0, 256)
+  b = random(0, 256)
+  setRGB(r, g, b)
+  delay(500)
+end
+setRGB(0, 0, 0)
+endpaste
+
+# ============================================
+# TIPS FOR PASTE MODE
+# ============================================
+
+# 1. Code is automatically compressed (keywords become 1 byte)
+# 2. You can paste up to 8KB of compressed code!
+# 3. Support for: if/then/else/elseif, while/do, for loops
+# 4. Nested loops work perfectly
+# 5. Comments with -- are supported
+# 6. All standard Lua functions work: setRGB, digitalWrite, etc.
+
+# ============================================
+# COMPRESSION EXAMPLES
+# ============================================
+
+# Before compression:
+# "if x > 5 then digitalWrite(13, 1) end"
+# 40 bytes
+
+# After compression (keywords → 1 byte each):
+# [IF] x > 5 [THEN] [DIGITALWRITE](13, 1) [END]
+# ~25 bytes (37% smaller!)
+
+# For large programs with many keywords, compression can save 
+# 40-60% of memory, letting you paste much more code!
+
+# ============================================
+# TROUBLESHOOTING
+# ============================================
+
+# If code doesn't run:
+# 1. Make sure you typed 'startpaste' first
+# 2. Check that loops have matching 'end' statements
+# 3. Verify conditions in if/while statements are valid
+# 4. Remember: loop limit is 1000 iterations for safety
+
+# If you get "buffer full" warning:
+# 1. Your code exceeded 8KB compressed
+# 2. Split into smaller sections
+# 3. Remove comments to save space
+
+# ============================================
+# ADVANCED EXAMPLE: Complete Program
+# ============================================
+
+startpaste
+-- Mood lighting with user control
+print("=== Mood Lighting System ===")
+print("Starting sequence...")
+
+mode = 1
+
+if mode == 1 then
+  print("Mode 1: Relaxing")
+  for i = 1, 20 do
+    for brightness = 0, 200, 20 do
+      setRGB(0, brightness / 4, brightness)
+      delay(50)
+    end
+    for brightness = 200, 0, -20 do
+      setRGB(0, brightness / 4, brightness)
+      delay(50)
+    end
+  end
+elseif mode == 2 then
+  print("Mode 2: Energizing")
+  for i = 1, 15 do
+    setRGB(255, 0, 0)
+    delay(200)
+    setRGB(255, 255, 0)
+    delay(200)
+  end
+else
+  print("Mode 3: Party")
+  for i = 1, 30 do
+    r = random(100, 256)
+    g = random(100, 256)
+    b = random(100, 256)
+    setRGB(r, g, b)
+    delay(300)
+  end
+end
+
+print("Sequence complete!")
+setRGB(0, 0, 0)
+endpaste
+
+# Have fun with paste mode! 🚀

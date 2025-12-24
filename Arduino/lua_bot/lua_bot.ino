@@ -15,13 +15,70 @@
 // =====================================================
 
 #define LINE_BUFFER_SIZE 128
-#define LUA_BUFFER_SIZE 512
+#define LUA_BUFFER_SIZE 2048
 #define MAX_LUA_VARIABLES 10
+#define COMPRESSED_CODE_SIZE 8192  // Much larger now with compression
 
 static char lineBuffer[LINE_BUFFER_SIZE];
 static char luaCodeBuffer[LUA_BUFFER_SIZE];
 static int luaCodeBufferPos = 0;
 static bool luaMultilineMode = false;
+static bool luaPasteMode = false;
+
+// Compressed storage for pasted Lua code (uses token codes)
+static uint8_t compressedCode[COMPRESSED_CODE_SIZE];
+static int compressedCodeSize = 0;
+
+// Token codes for compression (0x80-0xFF range to avoid conflicts with ASCII)
+#define TOKEN_BASE 0x80
+enum LuaTokens {
+  TOK_SETRGB = TOKEN_BASE,      // 0x80
+  TOK_DIGITALWRITE,              // 0x81
+  TOK_ANALOGWRITE,               // 0x82
+  TOK_DIGITALREAD,               // 0x83
+  TOK_ANALOGREAD,                // 0x84
+  TOK_PINMODE,                   // 0x85
+  TOK_DELAY,                     // 0x86
+  TOK_MILLIS,                    // 0x87
+  TOK_RANDOM,                    // 0x88
+  TOK_PRINT,                     // 0x89
+  TOK_SERIALAVAILABLE,           // 0x8A
+  TOK_SERIALREAD,                // 0x8B
+  TOK_IF,                        // 0x8C
+  TOK_THEN,                      // 0x8D
+  TOK_ELSE,                      // 0x8E
+  TOK_ELSEIF,                    // 0x8F
+  TOK_END,                       // 0x90
+  TOK_WHILE,                     // 0x91
+  TOK_DO,                        // 0x92
+  TOK_FOR,                       // 0x93
+  TOK_IN,                        // 0x94
+  TOK_REPEAT,                    // 0x95
+  TOK_UNTIL,                     // 0x96
+  TOK_FUNCTION,                  // 0x97
+  TOK_RETURN,                    // 0x98
+  TOK_LOCAL,                     // 0x99
+  TOK_AND,                       // 0x9A
+  TOK_OR,                        // 0x9B
+  TOK_NOT,                       // 0x9C
+  TOK_TRUE,                      // 0x9D
+  TOK_FALSE,                     // 0x9E
+  TOK_NIL,                       // 0x9F
+  TOK_BREAK,                     // 0xA0
+  TOK_GOTO,                      // 0xA1
+};
+
+// Token lookup table (must match enum order)
+const char* TOKEN_STRINGS[] = {
+  "setRGB", "digitalWrite", "analogWrite", "digitalRead", "analogRead",
+  "pinMode", "delay", "millis", "random", "print",
+  "serialAvailable", "serialRead",
+  "if", "then", "else", "elseif", "end",
+  "while", "do", "for", "in", "repeat", "until",
+  "function", "return", "local", "and", "or", "not",
+  "true", "false", "nil", "break", "goto"
+};
+#define TOKEN_COUNT (sizeof(TOKEN_STRINGS) / sizeof(TOKEN_STRINGS[0]))
 
 // LED pins (adjust for your board)
 #if defined(ARDUINO_NANO_RP2040_CONNECT) || defined(ARDUINO_UNOWIFIR4) || defined(ARDUINO_MINIMA) || defined(ARDUINO_UNOR4_MINIMA) || defined(ARDUINO_UNOR4_WIFI)
@@ -63,8 +120,16 @@ void handlePinCommand(uint8_t argc, const char **argv);
 void handleReadCommand(uint8_t argc, const char **argv);
 void handleWriteCommand(uint8_t argc, const char **argv);
 void handleDelayCommand(uint8_t argc, const char **argv);
+void handleStartPasteCommand(uint8_t argc, const char **argv);
+void handleEndPasteCommand(uint8_t argc, const char **argv);
 
 void executeLuaCode(const char* code);
+void executeMultiLineLuaCode();
+void executeLuaBlock(int startLine, int endLine);
+int compressLuaCode(const char* code, uint8_t* output, int maxSize);
+String decompressLuaCode(const uint8_t* input, int size);
+void compressAndStoreLine(const char* line);
+bool evaluateCondition(const char* condition);
 void resetLuaState();
 float evaluateExpression(const char* expr);
 void setLuaVariable(const char* name, float value);
@@ -135,6 +200,18 @@ HraCommandDef commands[] = {
     handleDelayCommand,
     "delay <ms>",
     "Wait for specified milliseconds"
+  },
+  {
+    "startpaste",
+    handleStartPasteCommand,
+    "startpaste",
+    "Start paste mode for multi-line Lua code"
+  },
+  {
+    "endpaste",
+    handleEndPasteCommand,
+    "endpaste",
+    "End paste mode and execute Lua code"
   },
   {
     "help",
@@ -214,8 +291,38 @@ void setup() {
 // =====================================================
 
 void loop() {
+  // Handle paste mode
+  if (luaPasteMode) {
+    while (Serial.available()) {
+      char c = (char)Serial.read();
+      
+      if (c == '\n' || c == '\r') {
+        if (luaCodeBufferPos > 0) {
+          luaCodeBuffer[luaCodeBufferPos] = '\0';
+          
+          // Check for end of paste mode
+          if (strcmp(luaCodeBuffer, "endpaste") == 0 || strcmp(luaCodeBuffer, "ENDPASTE") == 0) {
+            Serial.print(F("[bot] Compressed "));
+            Serial.print(compressedCodeSize);
+            Serial.println(F(" bytes of Lua code."));
+            Serial.println(F("[bot] Executing..."));
+            luaPasteMode = false;
+            executeMultiLineLuaCode();
+            luaCodeBufferPos = 0;
+            Serial.println(F("[bot] Execution complete."));
+          } else {
+            // Compress and store the line
+            compressAndStoreLine(luaCodeBuffer);
+            luaCodeBufferPos = 0;
+          }
+        }
+      } else if (luaCodeBufferPos < LUA_BUFFER_SIZE - 1) {
+        luaCodeBuffer[luaCodeBufferPos++] = c;
+      }
+    }
+  }
   // Handle multi-line Lua mode
-  if (luaMultilineMode) {
+  else if (luaMultilineMode) {
     while (Serial.available()) {
       char c = (char)Serial.read();
       
@@ -227,11 +334,12 @@ void loop() {
           if (strcmp(luaCodeBuffer, "end") == 0 || strcmp(luaCodeBuffer, "END") == 0) {
             Serial.println(F("[bot] Executing Lua code..."));
             luaMultilineMode = false;
-            // Execute accumulated code would go here
+            executeMultiLineLuaCode();
             luaCodeBufferPos = 0;
             Serial.println(F("[bot] Execution complete."));
           } else {
-            // Add line to buffer
+            // Compress and store the line
+            compressAndStoreLine(luaCodeBuffer);
             Serial.print(F("  ... "));
             Serial.println(luaCodeBuffer);
             luaCodeBufferPos = 0;
@@ -277,8 +385,40 @@ void handleRunCommand(uint8_t argc, const char **argv) {
   
   Serial.println(F("[bot] Entering multi-line Lua mode."));
   Serial.println(F("[bot] Type your Lua code, then 'end' on a new line to execute."));
+  Serial.println(F("[bot] Supports: if/then/else, while/do, for loops!"));
   luaMultilineMode = true;
+  compressedCodeSize = 0;
   luaCodeBufferPos = 0;
+}
+
+void handleStartPasteCommand(uint8_t argc, const char **argv) {
+  (void)argc;
+  (void)argv;
+  
+  Serial.println(F("[bot] === PASTE MODE ACTIVATED ==="));
+  Serial.println(F("[bot] Paste your Lua code now."));
+  Serial.println(F("[bot] Type 'endpaste' on a new line when done."));
+  Serial.println(F("[bot] Supports: if/then/else, while/do, for loops!"));
+  Serial.print(F("[bot] Code compression: "));
+  Serial.print(COMPRESSED_CODE_SIZE);
+  Serial.println(F(" bytes available"));
+  luaPasteMode = true;
+  compressedCodeSize = 0;
+  luaCodeBufferPos = 0;
+}
+
+void handleEndPasteCommand(uint8_t argc, const char **argv) {
+  (void)argc;
+  (void)argv;
+  
+  if (luaPasteMode) {
+    Serial.println(F("[bot] Ending paste mode and executing..."));
+    luaPasteMode = false;
+    executeMultiLineLuaCode();
+    Serial.println(F("[bot] Execution complete."));
+  } else {
+    Serial.println(F("[bot] Not in paste mode. Use 'startpaste' first."));
+  }
 }
 
 void handleExecCommand(uint8_t argc, const char **argv) {
@@ -350,6 +490,11 @@ void handleHelpCommand(uint8_t argc, const char **argv) {
   Serial.println(F("[bot]   lua setRGB(255, 0, 0)"));
   Serial.println(F("[bot]   lua digitalWrite(13, 1)"));
   Serial.println(F("[bot]   lua delay(1000)"));
+  Serial.println();
+  Serial.println(F("[bot] === Multi-line Code ==="));
+  Serial.println(F("[bot]   'startpaste' - Begin paste mode with compression"));
+  Serial.println(F("[bot]   Paste your code with if/while/for loops"));
+  Serial.println(F("[bot]   'endpaste' - Execute compressed code"));
   Serial.println();
   Serial.println(F("[bot] === Example Files ==="));
   Serial.println(F("[bot]   See examples_led_effects.txt for LED animations"));
@@ -1007,4 +1152,365 @@ void executeLuaCode(const char* code) {
   float result = evaluateExpression(code);
   Serial.print(F("[bot] Result: "));
   Serial.println(result);
+}
+
+// =====================================================
+// Compression Functions
+// =====================================================
+
+// Compress Lua code by replacing keywords with token codes
+int compressLuaCode(const char* code, uint8_t* output, int maxSize) {
+  int outPos = 0;
+  int inPos = 0;
+  int len = strlen(code);
+  
+  while (inPos < len && outPos < maxSize) {
+    bool tokenFound = false;
+    
+    // Try to match tokens (longest match first)
+    for (int i = 0; i < TOKEN_COUNT; i++) {
+      int tokenLen = strlen(TOKEN_STRINGS[i]);
+      if (inPos + tokenLen <= len && 
+          strncmp(code + inPos, TOKEN_STRINGS[i], tokenLen) == 0) {
+        // Check that it's a complete word (not part of a variable name)
+        if ((inPos + tokenLen >= len) || 
+            !isalnum(code[inPos + tokenLen]) && code[inPos + tokenLen] != '_') {
+          output[outPos++] = TOKEN_BASE + i;
+          inPos += tokenLen;
+          tokenFound = true;
+          break;
+        }
+      }
+    }
+    
+    if (!tokenFound) {
+      // Copy character as-is
+      output[outPos++] = (uint8_t)code[inPos++];
+    }
+  }
+  
+  return outPos;
+}
+
+// Decompress Lua code by expanding token codes back to keywords
+String decompressLuaCode(const uint8_t* input, int size) {
+  String result = "";
+  result.reserve(size * 2);  // Reserve some space
+  
+  for (int i = 0; i < size; i++) {
+    uint8_t byte = input[i];
+    
+    if (byte >= TOKEN_BASE && byte < TOKEN_BASE + TOKEN_COUNT) {
+      // It's a token - expand it
+      int tokenIndex = byte - TOKEN_BASE;
+      result += TOKEN_STRINGS[tokenIndex];
+    } else {
+      // Regular character
+      result += (char)byte;
+    }
+  }
+  
+  return result;
+}
+
+// Compress and add a line to the compressed storage
+void compressAndStoreLine(const char* line) {
+  uint8_t tempBuffer[LINE_BUFFER_SIZE * 2];
+  int compressedLen = compressLuaCode(line, tempBuffer, sizeof(tempBuffer));
+  
+  if (compressedCodeSize + compressedLen + 1 < COMPRESSED_CODE_SIZE) {
+    // Store length byte followed by compressed data
+    compressedCode[compressedCodeSize++] = (uint8_t)compressedLen;
+    memcpy(compressedCode + compressedCodeSize, tempBuffer, compressedLen);
+    compressedCodeSize += compressedLen;
+  } else {
+    Serial.println(F("[bot] Warning: Compressed code buffer full!"));
+  }
+}
+
+// =====================================================
+// Multi-line Execution with Control Structures
+// =====================================================
+
+// Evaluate a condition (returns true/false)
+bool evaluateCondition(const char* condition) {
+  String condStr = String(condition);
+  condStr.trim();
+  
+  // Handle comparison operators
+  if (condStr.indexOf("==") > 0) {
+    int pos = condStr.indexOf("==");
+    String left = condStr.substring(0, pos);
+    String right = condStr.substring(pos + 2);
+    left.trim();
+    right.trim();
+    float leftVal = evaluateExpression(left.c_str());
+    float rightVal = evaluateExpression(right.c_str());
+    return abs(leftVal - rightVal) < 0.0001;
+  }
+  
+  if (condStr.indexOf("!=") > 0) {
+    int pos = condStr.indexOf("!=");
+    String left = condStr.substring(0, pos);
+    String right = condStr.substring(pos + 2);
+    left.trim();
+    right.trim();
+    float leftVal = evaluateExpression(left.c_str());
+    float rightVal = evaluateExpression(right.c_str());
+    return abs(leftVal - rightVal) >= 0.0001;
+  }
+  
+  if (condStr.indexOf("<=") > 0) {
+    int pos = condStr.indexOf("<=");
+    String left = condStr.substring(0, pos);
+    String right = condStr.substring(pos + 2);
+    left.trim();
+    right.trim();
+    float leftVal = evaluateExpression(left.c_str());
+    float rightVal = evaluateExpression(right.c_str());
+    return leftVal <= rightVal;
+  }
+  
+  if (condStr.indexOf(">=") > 0) {
+    int pos = condStr.indexOf(">=");
+    String left = condStr.substring(0, pos);
+    String right = condStr.substring(pos + 2);
+    left.trim();
+    right.trim();
+    float leftVal = evaluateExpression(left.c_str());
+    float rightVal = evaluateExpression(right.c_str());
+    return leftVal >= rightVal;
+  }
+  
+  if (condStr.indexOf("<") > 0) {
+    int pos = condStr.indexOf("<");
+    String left = condStr.substring(0, pos);
+    String right = condStr.substring(pos + 1);
+    left.trim();
+    right.trim();
+    float leftVal = evaluateExpression(left.c_str());
+    float rightVal = evaluateExpression(right.c_str());
+    return leftVal < rightVal;
+  }
+  
+  if (condStr.indexOf(">") > 0) {
+    int pos = condStr.indexOf(">");
+    String left = condStr.substring(0, pos);
+    String right = condStr.substring(pos + 1);
+    left.trim();
+    right.trim();
+    float leftVal = evaluateExpression(left.c_str());
+    float rightVal = evaluateExpression(right.c_str());
+    return leftVal > rightVal;
+  }
+  
+  // Just evaluate as expression (non-zero is true)
+  return evaluateExpression(condition) != 0.0f;
+}
+
+// Execute a block of Lua code (decompressed)
+void executeLuaBlock(String* lines, int startLine, int endLine) {
+  int i = startLine;
+  
+  while (i <= endLine) {
+    String line = lines[i];
+    line.trim();
+    
+    // Skip empty lines and comments
+    if (line.length() == 0 || line.startsWith("--")) {
+      i++;
+      continue;
+    }
+    
+    // Handle if statements
+    if (line.startsWith("if ")) {
+      int thenPos = line.indexOf(" then");
+      if (thenPos > 0) {
+        String condition = line.substring(3, thenPos);
+        condition.trim();
+        
+        // Find matching end
+        int depth = 1;
+        int elsePos = -1;
+        int endPos = -1;
+        
+        for (int j = i + 1; j <= endLine; j++) {
+          String checkLine = lines[j];
+          checkLine.trim();
+          if (checkLine.startsWith("if ")) depth++;
+          if (checkLine == "end") {
+            depth--;
+            if (depth == 0) {
+              endPos = j;
+              break;
+            }
+          }
+          if (depth == 1 && checkLine == "else") {
+            elsePos = j;
+          }
+        }
+        
+        if (endPos > 0) {
+          if (evaluateCondition(condition.c_str())) {
+            // Execute then block
+            int blockEnd = (elsePos > 0) ? elsePos - 1 : endPos - 1;
+            executeLuaBlock(lines, i + 1, blockEnd);
+          } else if (elsePos > 0) {
+            // Execute else block
+            executeLuaBlock(lines, elsePos + 1, endPos - 1);
+          }
+          i = endPos + 1;
+          continue;
+        }
+      }
+    }
+    
+    // Handle while loops
+    if (line.startsWith("while ")) {
+      int doPos = line.indexOf(" do");
+      if (doPos > 0) {
+        String condition = line.substring(6, doPos);
+        condition.trim();
+        
+        // Find matching end
+        int depth = 1;
+        int endPos = -1;
+        
+        for (int j = i + 1; j <= endLine; j++) {
+          String checkLine = lines[j];
+          checkLine.trim();
+          if (checkLine.startsWith("while ")) depth++;
+          if (checkLine == "end") {
+            depth--;
+            if (depth == 0) {
+              endPos = j;
+              break;
+            }
+          }
+        }
+        
+        if (endPos > 0) {
+          // Execute loop
+          int loopCount = 0;
+          while (evaluateCondition(condition.c_str()) && loopCount < 1000) {
+            executeLuaBlock(lines, i + 1, endPos - 1);
+            loopCount++;
+          }
+          i = endPos + 1;
+          continue;
+        }
+      }
+    }
+    
+    // Handle for loops (simple numeric for)
+    if (line.startsWith("for ")) {
+      int doPos = line.indexOf(" do");
+      if (doPos > 0) {
+        String forHeader = line.substring(4, doPos);
+        forHeader.trim();
+        
+        // Parse: varname = start, end [, step]
+        int eqPos = forHeader.indexOf("=");
+        if (eqPos > 0) {
+          String varName = forHeader.substring(0, eqPos);
+          varName.trim();
+          
+          String range = forHeader.substring(eqPos + 1);
+          int firstComma = range.indexOf(",");
+          if (firstComma > 0) {
+            int secondComma = range.indexOf(",", firstComma + 1);
+            
+            String startStr = range.substring(0, firstComma);
+            String endStr;
+            String stepStr = "1";
+            
+            if (secondComma > 0) {
+              endStr = range.substring(firstComma + 1, secondComma);
+              stepStr = range.substring(secondComma + 1);
+            } else {
+              endStr = range.substring(firstComma + 1);
+            }
+            
+            startStr.trim();
+            endStr.trim();
+            stepStr.trim();
+            
+            float startVal = evaluateExpression(startStr.c_str());
+            float endVal = evaluateExpression(endStr.c_str());
+            float stepVal = evaluateExpression(stepStr.c_str());
+            
+            // Find matching end
+            int depth = 1;
+            int endPos = -1;
+            
+            for (int j = i + 1; j <= endLine; j++) {
+              String checkLine = lines[j];
+              checkLine.trim();
+              if (checkLine.startsWith("for ")) depth++;
+              if (checkLine == "end") {
+                depth--;
+                if (depth == 0) {
+                  endPos = j;
+                  break;
+                }
+              }
+            }
+            
+            if (endPos > 0) {
+              // Execute loop
+              int loopCount = 0;
+              if (stepVal > 0) {
+                for (float v = startVal; v <= endVal && loopCount < 1000; v += stepVal) {
+                  setLuaVariable(varName.c_str(), v);
+                  executeLuaBlock(lines, i + 1, endPos - 1);
+                  loopCount++;
+                }
+              } else if (stepVal < 0) {
+                for (float v = startVal; v >= endVal && loopCount < 1000; v += stepVal) {
+                  setLuaVariable(varName.c_str(), v);
+                  executeLuaBlock(lines, i + 1, endPos - 1);
+                  loopCount++;
+                }
+              }
+              i = endPos + 1;
+              continue;
+            }
+          }
+        }
+      }
+    }
+    
+    // Regular Lua statement
+    executeLuaCode(line.c_str());
+    i++;
+  }
+}
+
+// Execute all stored multi-line code
+void executeMultiLineLuaCode() {
+  if (compressedCodeSize == 0) {
+    Serial.println(F("[bot] No code to execute."));
+    return;
+  }
+  
+  // Decompress all lines
+  String lines[MAX_LUA_LINES];
+  int lineCount = 0;
+  int pos = 0;
+  
+  while (pos < compressedCodeSize && lineCount < MAX_LUA_LINES) {
+    int lineLen = compressedCode[pos++];
+    if (pos + lineLen > compressedCodeSize) break;
+    
+    lines[lineCount++] = decompressLuaCode(compressedCode + pos, lineLen);
+    pos += lineLen;
+  }
+  
+  // Execute the decompressed code
+  if (lineCount > 0) {
+    executeLuaBlock(lines, 0, lineCount - 1);
+  }
+  
+  // Clear compressed storage
+  compressedCodeSize = 0;
 }

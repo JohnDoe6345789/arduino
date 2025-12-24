@@ -1,10 +1,31 @@
 # Arduino Lua Bot
 
-An Arduino sketch that executes Lua-like code through the serial port and responds to plain English commands.
+An Arduino sketch that executes Lua-like code through the serial port and responds to plain English commands. **Now with code compression and control structures!**
 
 ## 🚀 Quick Start
 
 New to Arduino Lua Bot? Check out **[QUICKSTART.md](QUICKSTART.md)** for a 5-minute setup guide with instant effects and games!
+
+## ✨ New Features
+
+### Code Compression System
+- Paste large Lua programs with **automatic keyword compression**
+- Keywords like `if`, `while`, `digitalWrite` compressed to single bytes
+- Store up to **8KB of compressed code** (equivalent to ~15KB uncompressed)
+- Saves 40-60% memory on typical programs
+
+### Control Structures
+- **if/then/else/elseif** - Conditional execution
+- **while/do** - While loops with conditions
+- **for loops** - Numeric for loops with start, end, step
+- **Nested loops** - Loops inside loops work perfectly
+- **Loop safety** - Automatic 1000 iteration limit
+
+### Paste Mode
+- Use `startpaste` to begin pasting code
+- Paste multiple lines with control structures
+- Use `endpaste` to compress and execute
+- Perfect for complex programs!
 
 ## Features
 
