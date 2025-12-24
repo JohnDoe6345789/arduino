@@ -690,8 +690,13 @@ float evaluateExpression(const char* expr) {
   int opPos = -1;
   char op = '\0';
   
+  // Check for empty expression
+  if (exprStr.length() == 0) {
+    return 0.0f;
+  }
+  
   // First pass: look for + or - (lowest precedence)
-  for (int i = exprStr.length() - 1; i >= 0; i--) {
+  for (int i = (int)exprStr.length() - 1; i >= 0; i--) {
     char c = exprStr.charAt(i);
     if (c == '+' || c == '-') {
       opPos = i;
@@ -702,7 +707,7 @@ float evaluateExpression(const char* expr) {
   
   // Second pass: if no + or -, look for * or / (higher precedence)
   if (opPos == -1) {
-    for (int i = exprStr.length() - 1; i >= 0; i--) {
+    for (int i = (int)exprStr.length() - 1; i >= 0; i--) {
       char c = exprStr.charAt(i);
       if (c == '*' || c == '/') {
         opPos = i;
@@ -757,19 +762,19 @@ void executeLuaCode(const char* code) {
   if (eqPos > 0 && eqPos < codeStr.length() - 1) {
     // Check it's not == comparison
     if (codeStr.charAt(eqPos - 1) != '=' && codeStr.charAt(eqPos + 1) != '=') {
-    String varName = codeStr.substring(0, eqPos);
-    String expr = codeStr.substring(eqPos + 1);
-    varName.trim();
-    expr.trim();
-    
-    float value = evaluateExpression(expr.c_str());
-    setLuaVariable(varName.c_str(), value);
-    
-    Serial.print(F("[bot] "));
-    Serial.print(varName);
-    Serial.print(F(" = "));
-    Serial.println(value);
-    return;
+      String varName = codeStr.substring(0, eqPos);
+      String expr = codeStr.substring(eqPos + 1);
+      varName.trim();
+      expr.trim();
+      
+      float value = evaluateExpression(expr.c_str());
+      setLuaVariable(varName.c_str(), value);
+      
+      Serial.print(F("[bot] "));
+      Serial.print(varName);
+      Serial.print(F(" = "));
+      Serial.println(value);
+      return;
     }
   }
   
