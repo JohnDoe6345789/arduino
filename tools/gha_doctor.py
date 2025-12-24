@@ -10,11 +10,12 @@ summarizes potential misconfigurations that frequently cause CI failures.
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sys
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
-import re
-import textwrap
 
 try:
     import yaml  # type: ignore
@@ -101,6 +102,77 @@ def _has_cmake_presets(path: Path) -> bool:
     return any((path / candidate).exists() for candidate in ("CMakePresets.json", "CMakeUserPresets.json"))
 
 
+def _load_json(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _collect_dependency_specs(manifest: dict) -> dict[str, str]:
+    deps: dict[str, str] = {}
+    for key in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+        for name, spec in (manifest.get(key) or {}).items():
+            if isinstance(name, str) and isinstance(spec, str):
+                deps[name] = spec
+    return deps
+
+
+def _lockfile_specs(lock_data: dict) -> dict[str, str]:
+    packages = lock_data.get("packages")
+    if isinstance(packages, dict):
+        root_manifest = packages.get("")
+        if isinstance(root_manifest, dict):
+            return _collect_dependency_specs(root_manifest)
+
+    # Fall back to legacy lockfile layout with only resolved versions
+    deps: dict[str, str] = {}
+    for name, info in (lock_data.get("dependencies") or {}).items():
+        if isinstance(name, str) and isinstance(info, dict):
+            version = info.get("version")
+            if isinstance(version, str):
+                deps[name] = version
+    return deps
+
+
+def _npm_ci_mismatches(workdir: Path) -> list[str]:
+    package_json = workdir / "package.json"
+    lock_candidates = [workdir / "package-lock.json", workdir / "npm-shrinkwrap.json"]
+    lock_path = next((candidate for candidate in lock_candidates if candidate.exists()), None)
+
+    errors: list[str] = []
+    try:
+        package_manifest = _load_json(package_json)
+    except FileNotFoundError:
+        errors.append("package.json is missing from the npm working directory.")
+        return errors
+    except json.JSONDecodeError as exc:
+        errors.append(f"package.json is not valid JSON: {exc}.")
+        return errors
+
+    if lock_path is None:
+        errors.append("No package-lock.json or npm-shrinkwrap.json found alongside package.json.")
+        return errors
+
+    try:
+        lock_data = _load_json(lock_path)
+    except json.JSONDecodeError as exc:
+        errors.append(f"{lock_path.name} is not valid JSON: {exc}.")
+        return errors
+
+    pkg_specs = _collect_dependency_specs(package_manifest)
+    lock_specs = _lockfile_specs(lock_data)
+
+    for name, spec in pkg_specs.items():
+        locked_spec = lock_specs.get(name)
+        if locked_spec is None:
+            errors.append(f"{name} is missing from {lock_path.name}.")
+        elif locked_spec != spec:
+            errors.append(
+                f"{name} differs (package.json: {spec!r}, {lock_path.name}: {locked_spec!r})."
+            )
+
+    return errors
+
+
 def check_command_contexts(content: dict, repo_root: Path, workflow_name: str) -> list[Issue]:
     issues: list[Issue] = []
     for job_id, job in (content.get("jobs") or {}).items():
@@ -145,6 +217,21 @@ def check_command_contexts(content: dict, repo_root: Path, workflow_name: str) -
                         suggestion="Pin the Conan version (e.g., `python -m pip install conan==<version>`) to stabilize builds.",
                     )
                 )
+
+            if re.search(r"\bnpm\s+ci\b", run_cmd):
+                npm_errors = _npm_ci_mismatches(workdir)
+                if npm_errors:
+                    issues.append(
+                        Issue(
+                            level="ERROR",
+                            location=f"{workflow_name}:{job_id}",
+                            message=(
+                                "`npm ci` is likely to fail because the lockfile is out of sync with package.json: "
+                                + "; ".join(npm_errors)
+                            ),
+                            suggestion="Regenerate the lockfile with `npm install` or `npm install --package-lock-only` before running CI.",
+                        )
+                    )
 
     return issues
 
@@ -269,6 +356,7 @@ def main(argv: list[str] | None = None) -> int:
               - Preset-based cmake/ctest steps lacking CMakePresets.json nearby
               - Conan install steps without a conanfile in the working directory
               - Conan installs performed without pinning the tool version
+              - npm ci steps where package.json and the lockfile are out of sync
             """
         ),
     )
