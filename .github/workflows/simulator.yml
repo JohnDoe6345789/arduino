@@ -1,0 +1,56 @@
+name: Simulator CI
+
+on:
+  push:
+    paths:
+      - 'simulator/**'
+      - '.github/workflows/simulator.yml'
+  pull_request:
+    paths:
+      - 'simulator/**'
+      - '.github/workflows/simulator.yml'
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake python3-pip
+          python3 -m pip install conan
+      - name: Configure Conan
+        working-directory: simulator/backend
+        run: conan profile detect --force
+      - name: Install dependencies
+        working-directory: simulator/backend
+        run: conan install . --output-folder=build --build=missing
+      - name: Configure CMake
+        working-directory: simulator/backend
+        run: cmake --preset default
+      - name: Build
+        working-directory: simulator/backend
+        run: cmake --build --preset default
+      - name: Run tests
+        working-directory: simulator/backend
+        run: ctest --preset default
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: simulator/frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: simulator/frontend
+        run: npm ci --ignore-scripts
+      - name: Lint
+        working-directory: simulator/frontend
+        run: npm run lint
+      - name: Build
+        working-directory: simulator/frontend
+        run: npm run build

@@ -61,3 +61,5 @@ A command-line interface library for Arduino that makes it easy to create human-
 ## License
 
 See [LICENSE](LICENSE) file for details.
+### Arduino Simulator (prototype)
+A Conan/Ninja C++ simulation core with a Next.js + Material UI dashboard lives in `simulator/`. See `simulator/README.md` for setup instructions.
