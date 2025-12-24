@@ -63,3 +63,14 @@ A command-line interface library for Arduino that makes it easy to create human-
 See [LICENSE](LICENSE) file for details.
 ### Arduino Simulator (prototype)
 A Conan/Ninja C++ simulation core with a Next.js + Material UI dashboard lives in `simulator/`. See `simulator/README.md` for setup instructions.
+
+## CI workflow diagnostics
+
+Use `tools/gha_doctor.py` to lint GitHub Actions workflows without running them. The script highlights stale path filters, missing working directories, unpinned actions, and cache paths that no longer exist.
+
+```
+python3 -m pip install pyyaml
+python3 tools/gha_doctor.py
+```
+
+Pass `--workflows` or `--root` to inspect alternate workflow folders or monorepo layouts.
