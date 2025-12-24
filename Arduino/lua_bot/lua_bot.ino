@@ -769,9 +769,15 @@ bool parseThreeIntArgs(const String& funcCall, int& arg1, int& arg2, int& arg3) 
     if (firstComma > 0) {
       int secondComma = args.indexOf(',', firstComma + 1);
       if (secondComma > firstComma) {
-        arg1 = args.substring(0, firstComma).toInt();
-        arg2 = args.substring(firstComma + 1, secondComma).toInt();
-        arg3 = args.substring(secondComma + 1).toInt();
+        String arg1Str = args.substring(0, firstComma);
+        String arg2Str = args.substring(firstComma + 1, secondComma);
+        String arg3Str = args.substring(secondComma + 1);
+        arg1Str.trim();
+        arg2Str.trim();
+        arg3Str.trim();
+        arg1 = arg1Str.toInt();
+        arg2 = arg2Str.toInt();
+        arg3 = arg3Str.toInt();
         return true;
       }
     }
@@ -960,11 +966,16 @@ void executeLuaCode(const char* code) {
       long randVal;
       if (commaPos > 0) {
         // Two arguments: random(min, max)
-        int minVal = args.substring(0, commaPos).toInt();
-        int maxVal = args.substring(commaPos + 1).toInt();
+        String minStr = args.substring(0, commaPos);
+        String maxStr = args.substring(commaPos + 1);
+        minStr.trim();
+        maxStr.trim();
+        int minVal = minStr.toInt();
+        int maxVal = maxStr.toInt();
         randVal = random(minVal, maxVal);
       } else {
         // One argument: random(max)
+        args.trim();
         int maxVal = args.toInt();
         randVal = random(maxVal);
       }
